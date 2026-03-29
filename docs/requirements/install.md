@@ -1,7 +1,7 @@
 # Install
 
 ## FR-8: One-Line Install
-- A single `curl | bash` command handles full setup on a fresh Raspberry Pi OS install (run as a normal user; the script uses `sudo` for privileged steps).
+- Full setup on a fresh Raspberry Pi OS install via **`git clone` + `bash installer/earshot-install.sh`** (recommended), or optionally `curl | bash` (run as a normal user; the script uses `sudo` for privileged steps).
 - The installer must:
   - Do an apt update & apt upgrade
   - Install the seeed-voicecard driver

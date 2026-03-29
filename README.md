@@ -32,21 +32,26 @@ To safely shut down, hold the button for 3 seconds while idle.
   - Get a token at: https://huggingface.co/settings/tokens
   - Accept the model terms at: https://hf.co/pyannote/speaker-diarization-3.1 and https://hf.co/pyannote/segmentation-3.0
 
-### One-line install
+### Install from a clone (recommended)
 
-Use **`earshot-install.sh`** (canonical). Some CDNs cache `install.sh` for a long time; if you see errors mentioning `/var/lib/earshot-install`, you are on a **stale** `install.sh` — use the URL below.
+Run **as your normal login user** (e.g. `ritchie` or `pi`). The script uses `sudo` where it needs root.
+
+```bash
+git clone https://github.com/rsmacapinlac/earshot.git ~/earshot
+bash ~/earshot/installer/earshot-install.sh
+```
+
+Updates: `cd ~/earshot && git pull && bash installer/earshot-install.sh`
+
+### One-line install (curl)
+
+Optional — some CDNs cache URLs aggressively; cloning avoids that.
 
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/earshot-install.sh | bash
 ```
 
-The shorter `install.sh` URL is a stub that downloads `earshot-install.sh` and may help once your CDN serves the updated stub:
-
-```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/install.sh | bash
-```
-
-Run that **as your normal login user** (e.g. `ritchie` or `pi`). The script uses `sudo` where it needs root. **Do not use `sudo curl … | bash`** — only `curl` would run as root; `bash` would still be unprivileged.
+Stub that chains to the same script: `…/installer/install.sh`. **Do not use `sudo curl … | bash`.**
 
 The installer runs in **one session** (interactive prompts, then mostly automated). It enables the `earshot` service but does **not** start it until **after** a reboot, so the ReSpeaker ALSA device can appear cleanly.
 

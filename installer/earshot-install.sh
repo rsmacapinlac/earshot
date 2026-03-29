@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Earshot installer (canonical script — use this URL if install.sh is CDN-stale)
-# Usage: curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/earshot-install.sh | bash
+# Earshot installer
+#
+# Preferred (avoids curl/CDN issues):
+#   git clone https://github.com/rsmacapinlac/earshot.git ~/earshot
+#   bash ~/earshot/installer/earshot-install.sh
+#
+# Alternative: curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/earshot-install.sh | bash
 #
 # Single session: prompts, driver, system packages, Python env, models, systemd, then reboot.
 # Run as a normal login user; the script calls sudo for root-only steps.
@@ -27,29 +32,33 @@ error_handler() {
     local line=$2
     err "Install failed on line $line (exit code: $exit_code)"
     echo ""
-    echo "Fix the issue above, then re-run:"
-    echo "  curl -fsSL $SCRIPT_URL | bash"
+    echo "Re-run from your clone:"
+    echo "  cd ~/earshot && git pull && bash installer/earshot-install.sh"
     echo ""
-    echo "If you see /dev/tty or permission errors over SSH, use a login TTY:"
-    echo "  ssh -t user@pi"
-    echo "Or save and run locally:"
-    echo "  curl -fsSL $SCRIPT_URL -o ~/earshot-install.sh && bash ~/earshot-install.sh"
+    echo "Or one-liner (needs curl):"
+    echo "  curl -fsSL $SCRIPT_URL | bash"
 }
 
 trap 'error_handler $? $LINENO' ERR
 
-# ─── Bootstrap (curl | bash) ──────────────────────────────────────────────────
-# stdin is the pipe, so interactive prompts would read EOF. Download a copy and run
-# it with bash (no execute bit needed — avoids noexec-on-/tmp and chmod confusion).
+# ─── Bootstrap (curl | bash only) ─────────────────────────────────────────────
+# When you run `bash ~/earshot/installer/earshot-install.sh` from a clone, this path
+# is skipped — no curl, no /dev/tty workaround.
 #
-# Do NOT use `exec bash … </dev/tty` — if /dev/tty cannot be opened (non-interactive
-# SSH, some IDE terminals), the shell reports "Permission denied". We try /dev/tty
-# only when it is readable+writable; otherwise we warn and continue (prompts may
-# fail unless you use `ssh -t` or run from a real TTY).
+# When stdin is a pipe (curl | bash), download a copy to ~/.cache and re-run it
+# with stdin from the terminal so prompts work.
+
+if [ "${EARSHOT_BOOTSTRAP_DONE:-0}" != "1" ]; then
+    _self_path=$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || true)
+    if [[ "$_self_path" == */installer/earshot-install.sh ]] && [ -f "$_self_path" ]; then
+        export EARSHOT_BOOTSTRAP_DONE=1
+    fi
+fi
 
 if [ "${EARSHOT_BOOTSTRAP_DONE:-0}" != "1" ]; then
     if ! command -v curl &>/dev/null; then
-        err "curl is required. Install it with: sudo apt-get install -y curl"
+        err "curl is not installed. Clone the repo and run the installer locally:"
+        err "  git clone $REPO_URL ~/earshot && bash ~/earshot/installer/earshot-install.sh"
         exit 1
     fi
     if [ -z "${HOME:-}" ]; then

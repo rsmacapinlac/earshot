@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Thin entrypoint: jsDelivr and similar CDNs often cache installer/install.sh for a long time.
-# The real script lives at earshot-install.sh (new path → fresh fetch).
+# Thin entrypoint for curl users. Preferred: clone the repo and run earshot-install.sh.
 #
-# Usage (preferred):
-#   curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/earshot-install.sh | bash
+#   git clone https://github.com/rsmacapinlac/earshot.git ~/earshot
+#   bash ~/earshot/installer/earshot-install.sh
 #
-# This file:
+# This file (CDN → full installer):
 #   curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/install.sh | bash
 
 set -euo pipefail
