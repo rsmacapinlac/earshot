@@ -29,25 +29,52 @@ error_handler() {
     echo ""
     echo "Fix the issue above, then re-run:"
     echo "  curl -fsSL $SCRIPT_URL | bash"
+    echo ""
+    echo "If you see /dev/tty or permission errors over SSH, use a login TTY:"
+    echo "  ssh -t user@pi"
+    echo "Or save and run locally:"
+    echo "  curl -fsSL $SCRIPT_URL -o ~/earshot-install.sh && bash ~/earshot-install.sh"
 }
 
 trap 'error_handler $? $LINENO' ERR
 
 # ─── Bootstrap (curl | bash) ──────────────────────────────────────────────────
-# stdin is the pipe — download to /tmp and re-exec with stdin from the terminal
-# so Hugging Face / API prompts work.
+# stdin is the pipe, so interactive prompts would read EOF. Download a copy and run
+# it with bash (no execute bit needed — avoids noexec-on-/tmp and chmod confusion).
+#
+# Do NOT use `exec bash … </dev/tty` — if /dev/tty cannot be opened (non-interactive
+# SSH, some IDE terminals), the shell reports "Permission denied". We try /dev/tty
+# only when it is readable+writable; otherwise we warn and continue (prompts may
+# fail unless you use `ssh -t` or run from a real TTY).
 
 if [ "${EARSHOT_BOOTSTRAP_DONE:-0}" != "1" ]; then
     if ! command -v curl &>/dev/null; then
         err "curl is required. Install it with: sudo apt-get install -y curl"
         exit 1
     fi
-    _bootstrap_script=$(mktemp /tmp/earshot-install.XXXXXX.sh)
-    chmod 600 "$_bootstrap_script"
+    if [ -z "${HOME:-}" ]; then
+        err "HOME is not set. Log in as a normal user and try again."
+        exit 1
+    fi
+    _bcache="${XDG_CACHE_HOME:-$HOME/.cache}/earshot"
+    mkdir -p "$_bcache"
+    _bootstrap_script="$_bcache/install-bootstrap.sh"
+    umask 077
     curl -fsSL "$SCRIPT_URL" -o "$_bootstrap_script"
-    chmod 700 "$_bootstrap_script"
+    chmod 600 "$_bootstrap_script"
     export EARSHOT_BOOTSTRAP_DONE=1
-    exec bash "$_bootstrap_script" </dev/tty "$@"
+
+    _bootstrap_status=0
+    if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+        bash "$_bootstrap_script" </dev/tty "$@" || _bootstrap_status=$?
+    else
+        echo "" >&2
+        echo "WARNING: no usable /dev/tty (use: ssh -t user@host for a TTY)." >&2
+        echo "         Hugging Face / API prompts may not work from this session." >&2
+        echo "" >&2
+        bash "$_bootstrap_script" "$@" || _bootstrap_status=$?
+    fi
+    exit "$_bootstrap_status"
 fi
 
 # ─── Main install ─────────────────────────────────────────────────────────────
