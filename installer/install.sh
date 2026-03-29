@@ -162,7 +162,9 @@ phase1() {
     local seeed_dir
     seeed_dir=$(mktemp -d)
     git clone --depth=1 "$SEEED_URL" "$seeed_dir"
-    bash "$seeed_dir/install.sh"
+    # Must cd into the seeed dir — install.sh uses relative paths when copying
+    # source files into /usr/src/seeed-voicecard-*/
+    (cd "$seeed_dir" && bash install.sh)
     rm -rf "$seeed_dir"
 
     # ── Write state file ──────────────────────────────────────────────────────
