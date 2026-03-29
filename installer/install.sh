@@ -114,7 +114,7 @@ phase1() {
 
     log "Updating system packages..."
     apt-get update -y
-    apt-get upgrade -y
+    apt-get upgrade -y --fix-missing || true
     apt-get install -y git curl
 
     # ── Prompts ───────────────────────────────────────────────────────────────
