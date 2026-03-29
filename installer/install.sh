@@ -277,13 +277,18 @@ phase2() {
     usermod -aG audio,gpio,spi,i2c "$INSTALL_USER"
 
     # ── Clone repository ──────────────────────────────────────────────────────
+    # Use the passphrase-free deploy key so this step works headlessly from
+    # the systemd continuation service (no TTY available).
+
+    local deploy_key="$INSTALL_HOME/.ssh/id_ed25519_earshot"
+    local git_ssh="ssh -i $deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 
     log "Cloning Earshot repository..."
     if [ ! -d "$REPO_DIR/.git" ]; then
-        sudo -u "$INSTALL_USER" git clone "$REPO_URL" "$REPO_DIR"
+        sudo -u "$INSTALL_USER" GIT_SSH_COMMAND="$git_ssh" git clone "$REPO_URL" "$REPO_DIR"
     else
         info "Repository already exists — pulling latest..."
-        sudo -u "$INSTALL_USER" git -C "$REPO_DIR" pull
+        sudo -u "$INSTALL_USER" GIT_SSH_COMMAND="$git_ssh" git -C "$REPO_DIR" pull
     fi
 
     # Create data directories (gitignored — not in the repo)
