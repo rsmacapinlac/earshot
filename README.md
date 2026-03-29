@@ -25,7 +25,7 @@ To safely shut down, hold the button for 3 seconds while idle.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/earshot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/rsmacapinlac/earshot/main/installer/install.sh | bash
 ```
 
 The installer will:

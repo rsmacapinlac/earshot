@@ -1,0 +1,42 @@
+[Unit]
+Description=Earshot — on-device conversation recorder and transcriber
+Documentation=https://github.com/rsmacapinlac/earshot
+After=sound.target network.target
+Wants=sound.target
+
+[Service]
+Type=simple
+User=__INSTALL_USER__
+Group=audio
+WorkingDirectory=__INSTALL_HOME__/earshot
+ExecStart=__VENV_DIR__/bin/python -m earshot
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+
+# Allow up to 90s for startup — model warm-up on cold page cache can take 30-60s
+# on a Pi 4B with no GPU. NFR-5 requires ready state within 60s.
+TimeoutStartSec=90
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=earshot
+
+# Hardware access groups:
+#   gpio  — GPIO17 button (ReSpeaker HAT)
+#   spi   — APA102 LED (SPI-controlled, ReSpeaker HAT)
+#   i2c   — I2C bus access
+#   audio — ALSA audio capture
+SupplementaryGroups=gpio spi i2c audio
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=__INSTALL_HOME__/earshot
+
+# Ensure log output is not buffered so `journalctl -f` shows output in real time
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

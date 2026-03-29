@@ -1,0 +1,40 @@
+# Earshot Python dependencies
+#
+# NOTE: torch and torchaudio are installed separately by install.sh using
+# the CPU-only wheel index. Do not add them here — the default PyPI build
+# includes CUDA binaries (~2.5GB) that are useless on Raspberry Pi.
+#
+#   pip install torch==2.2.2 torchaudio==2.2.2 \
+#       --index-url https://download.pytorch.org/whl/cpu
+
+# Speech-to-text
+openai-whisper
+
+# Speaker diarization
+# Requires a one-time Hugging Face token during install (handled by install.sh).
+# After download, models are cached locally — no token or internet at runtime.
+pyannote.audio==3.3.2
+
+# Audio I/O
+pyaudio
+soundfile
+
+# APA102 RGB LED (SPI-controlled, onboard the ReSpeaker HAT)
+apa102-pi
+
+# GPIO (button on GPIO17)
+RPi.GPIO
+
+# Low-level SPI access
+spidev
+
+# Config file (TOML)
+# tomllib is in stdlib from Python 3.11+ — tomli is only needed on older versions
+tomli ; python_version < "3.11"
+tomli-w
+
+# HTTP client for API sync
+httpx
+
+# Pinned: pyannote.audio 3.x and openai-whisper are not yet compatible with numpy 2.x
+numpy<2.0
