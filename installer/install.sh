@@ -68,14 +68,15 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # ─── Dispatcher ───────────────────────────────────────────────────────────────
-# Read PHASE from state file. If PHASE=2, run phase 2. Otherwise run phase 1.
+# Read PHASE from state file and record which phase to run.
+# The actual call is deferred to the entry point after all functions are defined.
 
+_RUN_PHASE=1
 if [ -f "$STATE_FILE" ]; then
     # shellcheck disable=SC1090
     source "$STATE_FILE"
     if [ "${PHASE:-1}" = "2" ]; then
-        phase2
-        exit 0
+        _RUN_PHASE=2
     fi
 fi
 
@@ -198,6 +199,7 @@ ConditionPathExists=/var/lib/earshot-install/state
 
 [Service]
 Type=oneshot
+Environment=EARSHOT_SAVED=1
 ExecStart=/bin/bash /var/lib/earshot-install/install.sh
 StandardOutput=journal+console
 StandardError=journal+console
@@ -420,4 +422,8 @@ TOML
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
-phase1
+if [ "$_RUN_PHASE" = "2" ]; then
+    phase2
+else
+    phase1
+fi
