@@ -344,7 +344,7 @@ import os
 from pyannote.audio import Pipeline
 Pipeline.from_pretrained(
     "pyannote/speaker-diarization-3.1",
-    use_auth_token=os.environ["HF_TOKEN"],
+    token=os.environ["HF_TOKEN"],
 )
 print("    pyannote model ready.")
 PYEOF
