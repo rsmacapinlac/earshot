@@ -43,6 +43,30 @@ error_handler() {
 
 trap 'error_handler $? $LINENO' ERR
 
+# ─── Ensure on-disk copy for systemd continuation ─────────────────────────────
+# `curl | bash` saves to $SAVED_SCRIPT and re-execs. If the user runs a local copy
+# with EARSHOT_SAVED=1 (e.g. /tmp/install.sh), that path is skipped — but Phase 1
+# still enables earshot-install-continue.service, which always runs $SAVED_SCRIPT.
+# Copy our script there whenever we are not already executing from that path.
+
+ensure_saved_install_script_on_disk() {
+    mkdir -p "$STATE_DIR"
+    chmod 700 "$STATE_DIR"
+    local src
+    src=$(readlink -f "${BASH_SOURCE[0]}")
+    case "$src" in
+        /bin/bash | /usr/bin/bash) return 0 ;;
+    esac
+    if [ ! -f "$src" ]; then
+        return 0
+    fi
+    local dest
+    dest=$(readlink -f "$SAVED_SCRIPT" 2>/dev/null) || dest="$SAVED_SCRIPT"
+    if [ "$src" != "$dest" ]; then
+        install -m 700 "$src" "$SAVED_SCRIPT"
+    fi
+}
+
 # ─── Step 1: Self-save ────────────────────────────────────────────────────────
 # When run via `curl | bash`, stdin is the pipe so `read` prompts won't work
 # and the script has no path on disk. Download ourselves and re-exec from disk
@@ -66,6 +90,8 @@ fi
 if [ "$(id -u)" -ne 0 ]; then
     exec sudo EARSHOT_SAVED=1 bash "$0" "$@"
 fi
+
+ensure_saved_install_script_on_disk
 
 # ─── Dispatcher ───────────────────────────────────────────────────────────────
 # Read PHASE from state file and record which phase to run.
@@ -168,8 +194,9 @@ phase1() {
     (cd "$seeed_dir" && bash install.sh)
     rm -rf "$seeed_dir"
 
-    # ── Write state file ──────────────────────────────────────────────────────
-    # chmod 600 so the HF token is only readable by root.
+    # ── Write state for Phase 2 ────────────────────────────────────────────────
+    # Secrets are stored as single-line files (not sourced as shell) so Hugging Face
+    # tokens containing quotes, $, etc. do not break the continuation script.
 
     log "Saving install state..."
     mkdir -p "$STATE_DIR"
@@ -177,14 +204,15 @@ phase1() {
 
     (
         umask 077
-        cat > "$STATE_FILE" <<EOF
-INSTALL_USER=$INSTALL_USER
-INSTALL_HOME=$INSTALL_HOME
-HF_TOKEN=$HF_TOKEN
-API_ENDPOINT=$API_ENDPOINT
-API_SECRET=$API_SECRET
-PHASE=2
-EOF
+        printf '%s\n' "$INSTALL_USER" > "$STATE_DIR/install_user"
+        printf '%s\n' "$INSTALL_HOME" > "$STATE_DIR/install_home"
+        printf '%s\n' "$API_ENDPOINT" > "$STATE_DIR/api_endpoint"
+        printf '%s' "$HF_TOKEN" > "$STATE_DIR/hf_token"
+        rm -f "$STATE_DIR/api_secret"
+        if [ -n "$API_SECRET" ]; then
+            printf '%s' "$API_SECRET" > "$STATE_DIR/api_secret"
+        fi
+        echo "PHASE=2" > "$STATE_FILE"
     )
 
     # ── Install continuation service ──────────────────────────────────────────
@@ -230,13 +258,27 @@ UNIT
 # ─── Phase 2 ──────────────────────────────────────────────────────────────────
 
 phase2() {
-    # State file was already sourced by the dispatcher before calling phase2().
-    # Variables available: INSTALL_USER, INSTALL_HOME, HF_TOKEN, API_ENDPOINT,
-    # API_SECRET, PHASE.
+    # Dispatcher sourced only PHASE from $STATE_FILE. Load the rest from root-only
+    # files under $STATE_DIR (written in Phase 1).
 
     echo ""
     log "Earshot install — Phase 2 (post-reboot)"
     echo ""
+
+    read -r INSTALL_USER < "$STATE_DIR/install_user" || true
+    read -r INSTALL_HOME < "$STATE_DIR/install_home" || true
+    read -r API_ENDPOINT < "$STATE_DIR/api_endpoint" || true
+    read -r HF_TOKEN < "$STATE_DIR/hf_token" || true
+    API_SECRET=""
+    if [ -f "$STATE_DIR/api_secret" ]; then
+        read -r API_SECRET < "$STATE_DIR/api_secret" || true
+    fi
+
+    if [ -z "${INSTALL_USER:-}" ] || [ -z "${INSTALL_HOME:-}" ] || [ -z "${HF_TOKEN:-}" ]; then
+        err "Install state is incomplete (missing user, home, or Hugging Face token)."
+        err "Remove $STATE_DIR and re-run the installer from Phase 1."
+        exit 1
+    fi
 
     REPO_DIR="$INSTALL_HOME/earshot"
     VENV_DIR="$REPO_DIR/.venv"
@@ -284,8 +326,7 @@ phase2() {
     usermod -aG audio,gpio,spi,i2c "$INSTALL_USER"
 
     # ── Clone repository ──────────────────────────────────────────────────────
-    # Use the passphrase-free deploy key so this step works headlessly from
-    # the systemd continuation service (no TTY available).
+    # Public HTTPS URL — no TTY required (runs headlessly from systemd).
 
     log "Cloning Earshot repository..."
     if [ ! -d "$REPO_DIR/.git" ]; then
@@ -327,6 +368,9 @@ phase2() {
     sudo -u "$INSTALL_USER" "$VENV_DIR/bin/pip" install --quiet \
         -r "$REPO_DIR/installer/requirements.txt"
 
+    log "Installing Earshot package (editable)..."
+    sudo -u "$INSTALL_USER" "$VENV_DIR/bin/pip" install --quiet -e "$REPO_DIR"
+
     # ── Download models ───────────────────────────────────────────────────────
     # Models are cached to ~/.cache/huggingface/ on the install user's account.
     # The HF token is only needed for this one-time download — not at runtime.
@@ -339,7 +383,7 @@ print("    Whisper base model ready.")
 PYEOF
 
     log "Downloading pyannote speaker diarization model..."
-    sudo -u "$INSTALL_USER" HF_TOKEN="$HF_TOKEN" "$VENV_DIR/bin/python" - <<PYEOF
+    sudo -u "$INSTALL_USER" env HF_TOKEN="$HF_TOKEN" "$VENV_DIR/bin/python" - <<PYEOF
 import os
 from huggingface_hub import login
 from pyannote.audio import Pipeline
@@ -349,43 +393,63 @@ print("    pyannote model ready.")
 PYEOF
 
     # ── Write config.toml ─────────────────────────────────────────────────────
+    # Use tomli_w so API URL and secret cannot break TOML syntax or inject keys.
 
     log "Writing configuration file..."
     local config_path="$REPO_DIR/config.toml"
+    export CONFIG_PATH="$config_path"
+    export API_ENDPOINT="${API_ENDPOINT:-}"
+    export API_SECRET_PATH="$STATE_DIR/api_secret"
+    "$VENV_DIR/bin/python" - <<'PYCFG'
+import os
+from pathlib import Path
 
-    sudo -u "$INSTALL_USER" tee "$config_path" > /dev/null <<TOML
-# Earshot Configuration
-# Edit this file to customise behaviour.
-# Apply changes: sudo systemctl restart earshot
+import tomli_w
 
-[audio]
-sample_rate = 16000    # Hz — ReSpeaker native rate, matches Whisper/pyannote input
-channels = 2           # Stereo (both mics captured, downmixed to mono before processing)
-bit_depth = 16
-mp3_bitrate = 128      # kbps for ffmpeg MP3 encoding
+config_path = Path(os.environ["CONFIG_PATH"])
+api_endpoint = os.environ.get("API_ENDPOINT", "")
+secret_path = Path(os.environ["API_SECRET_PATH"])
+secret = secret_path.read_text().strip() if secret_path.is_file() else ""
 
-[recording]
-max_duration_seconds = 3600  # Stop recording automatically after this duration (1 hour)
-min_duration_seconds = 3     # Discard recordings shorter than this
-shutdown_hold_seconds = 3    # Hold button this long to trigger safe shutdown
+cfg = {
+    "audio": {
+        "sample_rate": 16000,
+        "channels": 2,
+        "bit_depth": 16,
+        "mp3_bitrate": 128,
+    },
+    "recording": {
+        "max_duration_seconds": 3600,
+        "min_duration_seconds": 3,
+        "shutdown_hold_seconds": 3,
+    },
+    "processing": {
+        "whisper_model": "base",
+    },
+    "storage": {
+        "data_dir": "~/earshot",
+        "disk_threshold_percent": 90,
+    },
+    "api": {
+        "endpoint": api_endpoint,
+    },
+}
+if secret:
+    cfg["api"]["secret"] = secret
 
-[processing]
-whisper_model = "base"  # Options: tiny | base | small
-                        # base:  ~150MB model, ~500MB RAM
-                        # small: ~500MB model, ~1GB RAM
+header = (
+    "# Earshot Configuration\n"
+    "# Edit this file to customise behaviour.\n"
+    "# Apply changes: sudo systemctl restart earshot\n\n"
+)
 
-[storage]
-data_dir = "~/earshot"
-disk_threshold_percent = 90  # Block new recordings above this disk usage %
-
-[api]
-endpoint = "$API_ENDPOINT"
-TOML
-
-    if [ -n "$API_SECRET" ]; then
-        echo "secret = \"$API_SECRET\"" | \
-            sudo -u "$INSTALL_USER" tee -a "$config_path" > /dev/null
-    fi
+config_path.parent.mkdir(parents=True, exist_ok=True)
+with open(config_path, "wb") as f:
+    f.write(header.encode())
+    tomli_w.dump(cfg, f)
+PYCFG
+    chown "$INSTALL_USER:$INSTALL_USER" "$config_path"
+    chmod 600 "$config_path"
 
     # ── Install earshot.service ───────────────────────────────────────────────
 
