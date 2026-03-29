@@ -4,7 +4,7 @@
 # the CPU-only wheel index. Do not add them here — the default PyPI build
 # includes CUDA binaries (~2.5GB) that are useless on Raspberry Pi.
 #
-#   pip install torch==2.2.2 torchaudio==2.2.2 \
+#   pip install torch==2.6.0 torchaudio==2.6.0 \
 #       --index-url https://download.pytorch.org/whl/cpu
 
 # Speech-to-text
@@ -36,5 +36,6 @@ tomli-w
 # HTTP client for API sync
 httpx
 
-# Pinned: pyannote.audio 3.x and openai-whisper are not yet compatible with numpy 2.x
-numpy<2.0
+# numpy 2.x has pre-built ARM64 wheels for Python 3.13 — no source compile needed.
+# pyannote.audio 3.3.2 and current openai-whisper both support numpy 2.x.
+numpy>=2.0
