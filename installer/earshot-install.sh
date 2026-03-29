@@ -236,7 +236,8 @@ import torch
 _real_torch_load = torch.load
 
 def _torch_load_for_pyannote_checkpoints(*args, **kwargs):
-    kwargs.setdefault("weights_only", False)
+    # lightning_fabric passes weights_only=True explicitly; setdefault would not override.
+    kwargs["weights_only"] = False
     return _real_torch_load(*args, **kwargs)
 
 torch.load = _torch_load_for_pyannote_checkpoints
