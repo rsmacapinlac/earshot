@@ -114,7 +114,7 @@ phase1() {
 
     log "Updating system packages..."
     apt-get update -y
-    apt-get upgrade -y --fix-missing || true
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --fix-missing || true
     apt-get install -y git curl
 
     # ── Prompts ───────────────────────────────────────────────────────────────
@@ -255,10 +255,17 @@ phase2() {
     info "ReSpeaker device detected."
 
     # ── System dependencies ───────────────────────────────────────────────────
+    # Remove seeed-voicecard from DKMS before installing audio/kernel dev packages.
+    # libasound2-dev pulls in new kernel images; their post-install hook would try
+    # to auto-build seeed-voicecard, which fails on kernel 6.x, breaking the whole
+    # dpkg transaction. Removing the DKMS module here prevents that hook from firing.
+
+    log "Removing seeed-voicecard from DKMS to prevent kernel hook failures..."
+    dkms remove seeed-voicecard/0.3 --all 2>/dev/null || true
 
     log "Installing system dependencies..."
-    apt-get update -y
-    apt-get install -y \
+    DEBIAN_FRONTEND=noninteractive apt-get update -y
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
         python3 \
         python3-venv \
         python3-pip \
