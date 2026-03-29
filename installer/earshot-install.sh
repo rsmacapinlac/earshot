@@ -228,8 +228,22 @@ PYEOF
 log "Downloading pyannote speaker diarization model..."
 HF_TOKEN="$HF_TOKEN" "$VENV_DIR/bin/python" - <<'PYEOF'
 import os
+
+import torch
+
+# PyTorch 2.6+ defaults torch.load(weights_only=True). pyannote / lightning checkpoints
+# embed types that fail that path; HF model weights are a trusted source here.
+_real_torch_load = torch.load
+
+def _torch_load_for_pyannote_checkpoints(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _real_torch_load(*args, **kwargs)
+
+torch.load = _torch_load_for_pyannote_checkpoints
+
 from huggingface_hub import login
 from pyannote.audio import Pipeline
+
 login(token=os.environ["HF_TOKEN"])
 Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
 print("    pyannote model ready.")
