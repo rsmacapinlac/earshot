@@ -14,6 +14,8 @@ SCRIPT_URL="https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/inst
 REPO_URL="https://github.com/rsmacapinlac/earshot.git"
 SEEED_URL="https://github.com/HinTak/seeed-voicecard.git"
 
+# Persistent state + script copy for post-reboot systemd (Phase 2). FHS-style location.
+# The curl|bash bootstrap does not write here first — see Step 1 (uses /tmp so no sudo).
 STATE_DIR="/var/lib/earshot-install"
 STATE_FILE="$STATE_DIR/state"
 SAVED_SCRIPT="$STATE_DIR/install.sh"
@@ -52,7 +54,7 @@ trap 'error_handler $? $LINENO' ERR
 
 ensure_saved_install_script_on_disk() {
     mkdir -p "$STATE_DIR"
-    chmod 700 "$STATE_DIR"
+    chmod 700 "$STATE_DIR" # root-only; continuation service runs as root
     local src
     src=$(readlink -f "${BASH_SOURCE[0]}")
     case "$src" in
@@ -69,32 +71,24 @@ ensure_saved_install_script_on_disk() {
 }
 
 # ─── Step 1: Self-save ────────────────────────────────────────────────────────
-# When run via `curl | bash`, stdin is the pipe so `read` prompts won't work
-# and the script has no path on disk. Download ourselves and re-exec from disk
-# so stdin is restored to the terminal.
+# When run via `curl | bash`, stdin is the pipe so `read` prompts won't work.
+# Download to a temp file under /tmp (writable by any user), then re-exec so stdin
+# is the terminal — no sudo for bootstrap, and no permission issues with /var/lib.
 #
-# `/var/lib/earshot-install` is root-owned. Do not use `sudo curl … | bash` — only
-# curl runs as root; bash stays unprivileged and cannot mkdir there. We sudo the
-# bootstrap paths when the invoking user is not root.
+# After `sudo`, ensure_saved_install_script_on_disk copies the script into
+# $SAVED_SCRIPT for systemd to run after reboot.
 
 if [ "${EARSHOT_SAVED:-0}" != "1" ]; then
     if ! command -v curl &>/dev/null; then
         err "curl is required. Install it with: sudo apt-get install -y curl"
         exit 1
     fi
-    if [ "$(id -u)" -eq 0 ]; then
-        mkdir -p "$STATE_DIR"
-        chmod 700 "$STATE_DIR"
-        curl -fsSL "$SCRIPT_URL" -o "$SAVED_SCRIPT"
-        chmod +x "$SAVED_SCRIPT"
-    else
-        sudo mkdir -p "$STATE_DIR"
-        sudo chmod 700 "$STATE_DIR"
-        sudo curl -fsSL "$SCRIPT_URL" -o "$SAVED_SCRIPT"
-        sudo chmod +x "$SAVED_SCRIPT"
-    fi
+    _bootstrap_script=$(mktemp /tmp/earshot-install.XXXXXX.sh)
+    chmod 600 "$_bootstrap_script"
+    curl -fsSL "$SCRIPT_URL" -o "$_bootstrap_script"
+    chmod 700 "$_bootstrap_script"
     export EARSHOT_SAVED=1
-    exec bash "$SAVED_SCRIPT" "$@"
+    exec bash "$_bootstrap_script" "$@"
 fi
 
 # ─── Step 2: Root check ───────────────────────────────────────────────────────
