@@ -10,7 +10,7 @@ set -euo pipefail
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 SCRIPT_URL="https://raw.githubusercontent.com/rsmacapinlac/earshot/main/installer/install.sh"
-REPO_URL="https://github.com/rsmacapinlac/earshot.git"
+REPO_URL="git@github.com:rsmacapinlac/earshot.git"
 SEEED_URL="https://github.com/HinTak/seeed-voicecard.git"
 
 STATE_DIR="/var/lib/earshot-install"
