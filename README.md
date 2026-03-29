@@ -34,6 +34,14 @@ To safely shut down, hold the button for 3 seconds while idle.
 
 ### One-line install
 
+Use **`earshot-install.sh`** (canonical). Some CDNs cache `install.sh` for a long time; if you see errors mentioning `/var/lib/earshot-install`, you are on a **stale** `install.sh` — use the URL below.
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/earshot-install.sh | bash
+```
+
+The shorter `install.sh` URL is a stub that downloads `earshot-install.sh` and may help once your CDN serves the updated stub:
+
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/install.sh | bash
 ```
