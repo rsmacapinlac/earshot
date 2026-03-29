@@ -17,8 +17,8 @@ STATE_DIR="/var/lib/earshot-install"
 STATE_FILE="$STATE_DIR/state"
 SAVED_SCRIPT="$STATE_DIR/install.sh"
 
-TORCH_VERSION="2.2.2"
-TORCH_AUDIO_VERSION="2.2.2"
+TORCH_VERSION="2.6.0"
+TORCH_AUDIO_VERSION="2.6.0"
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
