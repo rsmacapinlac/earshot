@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Earshot installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/rsmacapinlac/earshot/main/installer/install.sh | bash
+# Usage: curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/install.sh | bash
 #
 # Phase 1 (interactive): apt update/upgrade, seeed-voicecard driver, reboot
 # Phase 2 (automatic):   system deps, Python venv, model download, service install
@@ -9,7 +9,8 @@ set -euo pipefail
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-SCRIPT_URL="https://raw.githubusercontent.com/rsmacapinlac/earshot/main/installer/install.sh"
+# jsDelivr tracks GitHub main; raw.githubusercontent.com has been observed serving stale main for this file.
+SCRIPT_URL="https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/install.sh"
 REPO_URL="https://github.com/rsmacapinlac/earshot.git"
 SEEED_URL="https://github.com/HinTak/seeed-voicecard.git"
 
