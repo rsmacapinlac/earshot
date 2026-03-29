@@ -38,38 +38,28 @@ To safely shut down, hold the button for 3 seconds while idle.
 curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/install.sh | bash
 ```
 
-Run that **as your normal login user** (e.g. `ritchie` or `pi`). The script uses `sudo` where it needs root. **Do not use `sudo curl … | bash`** — only `curl` would run as root; `bash` would still be unprivileged and cannot create `/var/lib/earshot-install`.
+Run that **as your normal login user** (e.g. `ritchie` or `pi`). The script uses `sudo` where it needs root. **Do not use `sudo curl … | bash`** — only `curl` would run as root; `bash` would still be unprivileged.
 
-The installer runs in two phases separated by a reboot.
+The installer runs in **one session** (interactive prompts, then mostly automated). It enables the `earshot` service but does **not** start it until **after** a reboot, so the ReSpeaker ALSA device can appear cleanly.
 
-**Phase 1** (interactive, ~5 minutes):
-1. Updates system packages
-2. Prompts for your Hugging Face token and optional API endpoint
-3. Installs the ReSpeaker HAT kernel driver
-4. Reboots to activate the driver
+Typical order (~25–50 minutes depending on network):
 
-After reboot, Phase 2 starts automatically — no interaction needed.
+1. Prompts for your Hugging Face token and optional API endpoint
+2. Updates system packages and installs git/curl
+3. Installs the ReSpeaker HAT kernel driver (HinTak seeed-voicecard fork)
+4. Installs Python, ffmpeg, and audio build dependencies
+5. Clones the repo to `~/earshot/`, creates a venv, installs PyTorch (CPU) and Python deps
+6. Downloads the Whisper `base` model (~150 MB) and pyannote diarization model (~1 GB)
+7. Writes `~/earshot/config.toml`
+8. Installs and **enables** the `earshot` systemd service
+9. **Reboots** the Pi once at the end
 
-**Phase 2** (automatic, ~20–40 minutes depending on network speed):
-1. Installs Python, ffmpeg, and audio libraries
-2. Clones the Earshot repository to `~/earshot/`
-3. Creates a Python virtual environment and installs dependencies
-4. Downloads the Whisper speech model (~150 MB) and pyannote diarization model (~1 GB)
-5. Writes `~/earshot/config.toml` with your settings
-6. Installs and starts the `earshot` systemd service
-
-### Monitoring Phase 2
-
-Phase 2 runs as a systemd service. Follow its progress with:
+After boot, check the service and audio:
 
 ```bash
-journalctl -u earshot-install-continue -f
-```
-
-If Phase 2 fails, retry with:
-
-```bash
-sudo systemctl restart earshot-install-continue
+sudo systemctl status earshot
+journalctl -u earshot -f
+arecord -l
 ```
 
 ## Docs
