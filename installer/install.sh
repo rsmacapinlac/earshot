@@ -341,11 +341,10 @@ PYEOF
     log "Downloading pyannote speaker diarization model..."
     sudo -u "$INSTALL_USER" HF_TOKEN="$HF_TOKEN" "$VENV_DIR/bin/python" - <<PYEOF
 import os
+from huggingface_hub import login
 from pyannote.audio import Pipeline
-Pipeline.from_pretrained(
-    "pyannote/speaker-diarization-3.1",
-    token=os.environ["HF_TOKEN"],
-)
+login(token=os.environ["HF_TOKEN"])
+Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
 print("    pyannote model ready.")
 PYEOF
 
