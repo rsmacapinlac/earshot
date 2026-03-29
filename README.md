@@ -38,6 +38,8 @@ To safely shut down, hold the button for 3 seconds while idle.
 curl -fsSL https://raw.githubusercontent.com/rsmacapinlac/earshot/main/installer/install.sh | bash
 ```
 
+Run that **as your normal login user** (e.g. `ritchie` or `pi`). The script uses `sudo` where it needs root. **Do not use `sudo curl … | bash`** — only `curl` would run as root; `bash` would still be unprivileged and cannot create `/var/lib/earshot-install`.
+
 The installer runs in two phases separated by a reboot.
 
 **Phase 1** (interactive, ~5 minutes):

@@ -71,16 +71,27 @@ ensure_saved_install_script_on_disk() {
 # When run via `curl | bash`, stdin is the pipe so `read` prompts won't work
 # and the script has no path on disk. Download ourselves and re-exec from disk
 # so stdin is restored to the terminal.
+#
+# `/var/lib/earshot-install` is root-owned. Do not use `sudo curl … | bash` — only
+# curl runs as root; bash stays unprivileged and cannot mkdir there. We sudo the
+# bootstrap paths when the invoking user is not root.
 
 if [ "${EARSHOT_SAVED:-0}" != "1" ]; then
     if ! command -v curl &>/dev/null; then
         err "curl is required. Install it with: sudo apt-get install -y curl"
         exit 1
     fi
-    mkdir -p "$STATE_DIR"
-    chmod 700 "$STATE_DIR"
-    curl -fsSL "$SCRIPT_URL" -o "$SAVED_SCRIPT"
-    chmod +x "$SAVED_SCRIPT"
+    if [ "$(id -u)" -eq 0 ]; then
+        mkdir -p "$STATE_DIR"
+        chmod 700 "$STATE_DIR"
+        curl -fsSL "$SCRIPT_URL" -o "$SAVED_SCRIPT"
+        chmod +x "$SAVED_SCRIPT"
+    else
+        sudo mkdir -p "$STATE_DIR"
+        sudo chmod 700 "$STATE_DIR"
+        sudo curl -fsSL "$SCRIPT_URL" -o "$SAVED_SCRIPT"
+        sudo chmod +x "$SAVED_SCRIPT"
+    fi
     export EARSHOT_SAVED=1
     exec bash "$SAVED_SCRIPT" "$@"
 fi
