@@ -13,7 +13,10 @@ openai-whisper
 # Speaker diarization
 # Requires a one-time Hugging Face token during install (handled by install.sh).
 # After download, models are cached locally — no token or internet at runtime.
-pyannote.audio>=3.3.2
+pyannote.audio==3.3.2
+# Pinned: pyannote.audio 3.3.2 uses use_auth_token internally, which was removed in
+# huggingface_hub 1.0. Pin to <1.0 until pyannote.audio is updated.
+huggingface_hub<1.0
 
 # Audio I/O
 pyaudio
