@@ -281,9 +281,9 @@ cfg = {
         "channels": 2,
         "bit_depth": 16,
         "mp3_bitrate": 128,
-        # ReSpeaker: PortAudio/PyAudio often fails; arecord + plughw is reliable.
-        # Named card survives reordering; adjust if `arecord -l` shows a different CARD=.
-        "alsa_pcm": "plughw:CARD=seeed2micvoicec,DEV=0",
+        # ReSpeaker: use arecord (see audio.alsa_pcm). On Pi OS with PipeWire, `pulse`
+        # usually works; on bare ALSA use plughw:CARD=seeed2micvoicec,DEV=0 (see arecord -l).
+        "alsa_pcm": "pulse",
     },
     "recording": {
         "max_duration_seconds": 3600,
