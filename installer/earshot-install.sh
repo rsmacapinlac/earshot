@@ -252,6 +252,16 @@ log "Installing Earshot package (editable) with Pi extras..."
 
 log "Downloading Whisper base model (~150MB)..."
 "$VENV_DIR/bin/python" - <<'PYEOF'
+import torch
+
+_real_torch_load = torch.load
+
+def _patched_load(*args, **kwargs):
+    kwargs["weights_only"] = False
+    return _real_torch_load(*args, **kwargs)
+
+torch.load = _patched_load
+
 import whisper
 whisper.load_model("base")
 print("    Whisper base model ready.")

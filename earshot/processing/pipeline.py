@@ -32,6 +32,7 @@ def _patch_torch_load_for_pyannote() -> None:
 def _get_whisper(model_name: str) -> Any:
     global _whisper_model
     if _whisper_model is None:
+        _patch_torch_load_for_pyannote()
         import whisper
 
         _log.info("loading Whisper model %r…", model_name)
