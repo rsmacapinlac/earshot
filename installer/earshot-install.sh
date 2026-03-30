@@ -282,8 +282,8 @@ cfg = {
         "bit_depth": 16,
         "mp3_bitrate": 128,
         # ReSpeaker: PortAudio/PyAudio often fails; arecord + plughw is reliable.
-        # If capture fails, run `arecord -l` and set card/device (e.g. plughw:2,0).
-        "alsa_pcm": "plughw:3,0",
+        # Named card survives reordering; adjust if `arecord -l` shows a different CARD=.
+        "alsa_pcm": "plughw:CARD=seeed2micvoicec,DEV=0",
     },
     "recording": {
         "max_duration_seconds": 3600,
