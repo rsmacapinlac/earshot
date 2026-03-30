@@ -37,6 +37,8 @@ ReadWritePaths=__INSTALL_HOME__/earshot
 
 # Ensure log output is not buffered so `journalctl -f` shows output in real time
 Environment=PYTHONUNBUFFERED=1
+# PipeWire/PulseAudio socket for arecord -D pulse (system service has no user session)
+Environment=XDG_RUNTIME_DIR=/run/user/__INSTALL_UID__
 
 [Install]
 WantedBy=multi-user.target

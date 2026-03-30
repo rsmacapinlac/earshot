@@ -356,10 +356,12 @@ chmod 600 "$REPO_DIR/config.toml"
 # ── systemd: enable only (ALSA/HAT may need a reboot before first start works) ─
 
 log "Installing Earshot systemd service..."
+INSTALL_UID="$(id -u)"
 sudo sed \
     -e "s|__INSTALL_USER__|$INSTALL_USER|g" \
     -e "s|__INSTALL_HOME__|$INSTALL_HOME|g" \
     -e "s|__VENV_DIR__|$VENV_DIR|g" \
+    -e "s|__INSTALL_UID__|$INSTALL_UID|g" \
     "$REPO_DIR/installer/earshot.service.template" \
     | sudo tee /etc/systemd/system/earshot.service >/dev/null
 
