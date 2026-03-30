@@ -42,6 +42,7 @@ class RecordingConfig:
 @dataclass(frozen=True, slots=True)
 class ProcessingConfig:
     whisper_model: str
+    enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +115,7 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
         ),
         processing=ProcessingConfig(
             whisper_model=str(processing["whisper_model"]),
+            enabled=bool(processing.get("enabled", True)),
         ),
         storage=StorageConfig(
             data_dir=data_dir,

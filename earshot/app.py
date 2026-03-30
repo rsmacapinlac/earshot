@@ -62,10 +62,11 @@ class EarshotApp:
         assert hal is not None
 
         hal.led.set_colour_and_pattern(255, 255, 255, LedPattern.SLOW_PULSE)
-        try:
-            warm_processing_models(cfg.processing.whisper_model)
-        except Exception:
-            _log.exception("model warm-up failed — processing may fail until this is resolved")
+        if cfg.processing.enabled:
+            try:
+                warm_processing_models(cfg.processing.whisper_model)
+            except Exception:
+                _log.exception("model warm-up failed — processing may fail until this is resolved")
 
         disk_blocked = self._disk_blocked()
         if disk_blocked:
@@ -76,10 +77,11 @@ class EarshotApp:
                 level="warning",
             )
 
-        with self._db_lock:
-            pending = list_recordings_needing_processing(self._conn)
-        for row in pending:
-            self._process_recording_row(row)
+        if cfg.processing.enabled:
+            with self._db_lock:
+                pending = list_recordings_needing_processing(self._conn)
+            for row in pending:
+                self._process_recording_row(row)
 
         self._set_idle_led(disk_blocked)
 
@@ -288,18 +290,19 @@ class EarshotApp:
                 recording_id=rec_id,
             )
 
-        row = RecordingRow(
-            id=rec_id,
-            recorded_at=recorded_at,
-            directory=str(rec_dir),
-            duration_seconds=duration_s,
-            processing_state="pending",
-            processing_started_at=None,
-            processing_completed_at=None,
-            processing_duration_seconds=None,
-            error=None,
-        )
-        self._process_recording_row(row)
+        if cfg.processing.enabled:
+            row = RecordingRow(
+                id=rec_id,
+                recorded_at=recorded_at,
+                directory=str(rec_dir),
+                duration_seconds=duration_s,
+                processing_state="pending",
+                processing_started_at=None,
+                processing_completed_at=None,
+                processing_duration_seconds=None,
+                error=None,
+            )
+            self._process_recording_row(row)
         self._set_idle_led(self._disk_blocked())
 
     def _record_until_stop(self, audio, writer: StereoWavWriter, cfg: AppConfig) -> int:
