@@ -314,9 +314,9 @@ cfg = {
         "channels": 2,
         "bit_depth": 16,
         "mp3_bitrate": 128,
-        # ReSpeaker: use arecord (see audio.alsa_pcm). On Pi OS with PipeWire, `pulse`
-        # usually works; on bare ALSA use plughw:CARD=seeed2micvoicec,DEV=0 (see arecord -l).
-        "alsa_pcm": "pulse",
+        # ReSpeaker: bypass PipeWire and capture directly via ALSA (works from a system
+        # service without a user session). Use arecord -l to confirm the card name.
+        "alsa_pcm": "plughw:CARD=seeed2micvoicec,DEV=0",
     },
     "recording": {
         "max_duration_seconds": 3600,
