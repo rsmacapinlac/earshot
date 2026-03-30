@@ -21,6 +21,9 @@ pi = [
     "RPi.GPIO",
     "spidev",
 ]
+dev = [
+    "pytest",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

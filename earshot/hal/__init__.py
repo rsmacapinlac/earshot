@@ -6,9 +6,7 @@ import logging
 import os
 
 from earshot.config import AppConfig
-from earshot.hal.animator import LedAnimator
 from earshot.hal.bundle import Hal
-from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton, PiLED
 from earshot.hal.protocols import AudioCapture, ButtonDriver, LEDDriver, LedPattern
 from earshot.hal.stub import StubAudioCapture, StubButton, StubLED, StdinPulseButton
 
@@ -18,7 +16,7 @@ _log = logging.getLogger(__name__)
 class _AnimatingLed:
     """Presents `LEDDriver` while a `LedAnimator` owns the `PiLED`."""
 
-    def __init__(self, animator: LedAnimator) -> None:
+    def __init__(self, animator) -> None:
         self._animator = animator
 
     def set_colour_and_pattern(
@@ -83,6 +81,9 @@ def _stub_hal(cfg: AppConfig) -> Hal:
 
 
 def _pi_hal(cfg: AppConfig) -> Hal:
+    from earshot.hal.animator import LedAnimator
+    from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton, PiLED
+
     pi_led = PiLED()
     animator = LedAnimator(pi_led)
     animator.start()
@@ -116,7 +117,6 @@ __all__ = [
     "ButtonDriver",
     "Hal",
     "LEDDriver",
-    "LedAnimator",
     "LedPattern",
     "create_hal",
 ]

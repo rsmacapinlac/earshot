@@ -12,6 +12,7 @@ def wav_to_opus_mono(
     *,
     sample_rate: int,
     bitrate_kbps: int,
+    ignore_header_length: bool = False,
 ) -> None:
     opus_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -20,6 +21,13 @@ def wav_to_opus_mono(
         "-hide_banner",
         "-loglevel",
         "error",
+    ]
+    if ignore_header_length:
+        # WAV files written by Python's wave module have zeroed chunk-size fields
+        # if the process crashed before close(). This flag tells the WAV decoder to
+        # ignore the declared data-chunk length and read audio until EOF instead.
+        cmd += ["-ignore_length", "1"]
+    cmd += [
         "-i",
         str(wav_path),
         "-ac",

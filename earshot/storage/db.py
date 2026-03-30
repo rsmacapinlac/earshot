@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def utc_now_iso() -> str:
@@ -71,6 +71,27 @@ def init_schema(conn: sqlite3.Connection) -> None:
             ALTER TABLE uploads RENAME COLUMN mp3_state TO audio_state;
             """
         )
+    if version < 3:
+        # Migrate from v2: add audio_filename so multiple chunks can share a session
+        # directory.  Recreate recordings with the new unique constraint on
+        # (directory, audio_filename) instead of directory alone.
+        conn.executescript(
+            """
+            CREATE TABLE recordings_v3 (
+                id TEXT PRIMARY KEY,
+                recorded_at TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                audio_filename TEXT NOT NULL DEFAULT 'audio.opus',
+                duration_seconds REAL NOT NULL,
+                UNIQUE (directory, audio_filename)
+            );
+            INSERT INTO recordings_v3 (id, recorded_at, directory, audio_filename, duration_seconds)
+                SELECT id, recorded_at, directory, 'audio.opus', duration_seconds
+                FROM recordings;
+            DROP TABLE recordings;
+            ALTER TABLE recordings_v3 RENAME TO recordings;
+            """
+        )
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
@@ -94,15 +115,16 @@ def insert_recording_pending(
     *,
     recorded_at: str,
     directory: Path,
+    audio_filename: str = "audio.opus",
     duration_seconds: float,
 ) -> str:
     rec_id = str(uuid.uuid4())
     conn.execute(
         """
-        INSERT INTO recordings (id, recorded_at, directory, duration_seconds)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO recordings (id, recorded_at, directory, audio_filename, duration_seconds)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (rec_id, recorded_at, str(directory), duration_seconds),
+        (rec_id, recorded_at, str(directory), audio_filename, duration_seconds),
     )
     conn.execute(
         """
@@ -118,7 +140,7 @@ def insert_recording_pending(
 def list_uploads_pending(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     cur = conn.execute(
         """
-        SELECT u.recording_id, u.audio_state, r.directory
+        SELECT u.recording_id, u.audio_state, r.directory, r.audio_filename
         FROM uploads u
         JOIN recordings r ON r.id = u.recording_id
         WHERE u.audio_state != 'complete'

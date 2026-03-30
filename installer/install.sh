@@ -3,6 +3,7 @@
 #
 # Run as your normal login user — the script calls sudo where it needs root:
 #
+#   sudo apt install -y git
 #   git clone https://github.com/rsmacapinlac/earshot.git ~/earshot
 #   bash ~/earshot/installer/install.sh
 #
@@ -175,7 +176,7 @@ cfg = {
         "alsa_pcm": "plughw:CARD=seeed2micvoicec,DEV=0",
     },
     "recording": {
-        "max_duration_seconds": 3600,
+        "max_duration_seconds": 7200,
         "min_duration_seconds": 3,
         "shutdown_hold_seconds": 3,
     },

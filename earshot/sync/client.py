@@ -16,11 +16,12 @@ _log = logging.getLogger(__name__)
 def try_sync_recording(
     endpoint: str,
     directory: Path,
+    audio_filename: str,
     *,
     recording_id: str,
     secret: str | None,
 ) -> bool:
-    """Upload audio.opus to the API. Returns True if the upload succeeded."""
+    """Upload the audio file to the API. Returns True if the upload succeeded."""
     if not endpoint:
         return True
 
@@ -29,7 +30,7 @@ def try_sync_recording(
     if secret:
         headers["Authorization"] = f"Bearer {secret}"
 
-    opus_path = directory / "audio.opus"
+    opus_path = directory / audio_filename
     if not opus_path.is_file():
         _log.warning("audio.opus not found for %s — skipping", recording_id)
         return False
@@ -57,9 +58,10 @@ def sync_pending_uploads(
     for row in rows:
         rid = str(row["recording_id"])
         directory = Path(str(row["directory"]))
+        audio_filename = str(row["audio_filename"])
         if endpoint.strip():
             dbmod.update_upload_state(conn, rid, increment_retry=True)
-        ok = try_sync_recording(endpoint, directory, recording_id=rid, secret=secret)
+        ok = try_sync_recording(endpoint, directory, audio_filename, recording_id=rid, secret=secret)
         dbmod.update_upload_state(
             conn,
             rid,

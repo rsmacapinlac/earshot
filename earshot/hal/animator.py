@@ -6,7 +6,13 @@ import math
 import threading
 import time
 
-from earshot.hal.pi import PiLED
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from earshot.hal.pi import PiLED
+
 from earshot.hal.protocols import LedPattern
 
 _SLOW_PERIOD_S = 1.0
