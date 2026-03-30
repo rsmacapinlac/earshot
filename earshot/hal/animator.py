@@ -75,7 +75,7 @@ class LedAnimator:
             self._led.render_scaled(1.0)
 
     def run_fade_off(self, duration_s: float = 2.0) -> None:
-        """Blocking fade (caller typically holds processing lock)."""
+        """Blocking fade to off (used during shutdown sequence)."""
         t0 = time.monotonic()
         self._led.set_target_rgb(255, 255, 255)
         while True:

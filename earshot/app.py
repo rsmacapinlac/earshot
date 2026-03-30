@@ -1,4 +1,4 @@
-"""Application state machine: boot, idle, record, process, sync, shutdown."""
+"""Application state machine: boot, idle, record, encode, sync, shutdown."""
 
 from __future__ import annotations
 
@@ -13,26 +13,18 @@ from pathlib import Path
 from earshot.config import AppConfig
 from earshot.hal import Hal, LedPattern, create_hal
 from earshot.hal.effects import flash_double_green, flash_fast_red_three_times
-from earshot.processing import process_mp3, warm_processing_models
-from earshot.recording import StereoWavWriter, wav_to_mp3_mono
+from earshot.recording import StereoWavWriter, wav_to_opus_mono
 from earshot.storage import (
     connect,
     database_path,
     init_schema,
     insert_recording_pending,
     is_over_disk_threshold,
-    list_recordings_needing_processing,
     log_event,
-    mark_processing_complete,
-    mark_processing_failed,
-    mark_processing_started,
     new_recording_stamp,
     recording_directory,
     recordings_root,
-    reset_stale_processing,
-    tmp_dir,
 )
-from earshot.storage.db import RecordingRow
 from earshot.sync import sync_pending_uploads
 
 _log = logging.getLogger(__name__)
@@ -54,7 +46,6 @@ class EarshotApp:
         self._ensure_directories()
         with self._db_lock:
             init_schema(self._conn)
-            reset_stale_processing(self._conn)
             log_event(self._conn, "Earshot starting", level="info")
 
         self._hal = create_hal(cfg)
@@ -62,26 +53,11 @@ class EarshotApp:
         assert hal is not None
 
         hal.led.set_colour_and_pattern(255, 255, 255, LedPattern.SLOW_PULSE)
-        if cfg.processing.enabled:
-            try:
-                warm_processing_models(cfg.processing.whisper_model)
-            except Exception:
-                _log.exception("model warm-up failed — processing may fail until this is resolved")
 
         disk_blocked = self._disk_blocked()
         if disk_blocked:
             hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
-            log_event(
-                self._conn,
-                "Disk threshold reached at startup",
-                level="warning",
-            )
-
-        if cfg.processing.enabled:
-            with self._db_lock:
-                pending = list_recordings_needing_processing(self._conn)
-            for row in pending:
-                self._process_recording_row(row)
+            log_event(self._conn, "Disk threshold reached at startup", level="warning")
 
         self._set_idle_led(disk_blocked)
 
@@ -102,10 +78,8 @@ class EarshotApp:
                 self._conn.close()
 
     def _ensure_directories(self) -> None:
-        root = self._cfg.storage.data_dir
         recordings_root(self._cfg).mkdir(parents=True, exist_ok=True)
-        tmp_dir(self._cfg).mkdir(parents=True, exist_ok=True)
-        root.mkdir(parents=True, exist_ok=True)
+        self._cfg.storage.data_dir.mkdir(parents=True, exist_ok=True)
 
     def _disk_blocked(self) -> bool:
         return is_over_disk_threshold(
@@ -124,7 +98,6 @@ class EarshotApp:
     def _main_loop(self) -> None:
         hal = self._hal
         assert hal is not None
-        cfg = self._cfg
         while True:
             while self._disk_blocked():
                 hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
@@ -255,23 +228,22 @@ class EarshotApp:
             self._set_idle_led(self._disk_blocked())
             return
 
-        mp3_path = rec_dir / "audio.mp3"
+        hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+
+        opus_path = rec_dir / "audio.opus"
         try:
-            wav_to_mp3_mono(
+            wav_to_opus_mono(
                 wav_path,
-                mp3_path,
+                opus_path,
                 sample_rate=cfg.audio.sample_rate,
-                bitrate_kbps=cfg.audio.mp3_bitrate,
+                bitrate_kbps=cfg.audio.opus_bitrate,
             )
         except Exception as exc:
-            _log.exception("MP3 encode failed")
+            _log.exception("Opus encode failed")
             with self._db_lock:
-                log_event(
-                    self._conn,
-                    f"ffmpeg encode failed: {exc}",
-                    level="error",
-                )
-            hal.led.set_colour_and_pattern(0, 255, 0, LedPattern.SOLID)
+                log_event(self._conn, f"ffmpeg encode failed: {exc}", level="error")
+            flash_fast_red_three_times(hal)
+            self._set_idle_led(self._disk_blocked())
             return
 
         wav_path.unlink(missing_ok=True)
@@ -290,19 +262,6 @@ class EarshotApp:
                 recording_id=rec_id,
             )
 
-        if cfg.processing.enabled:
-            row = RecordingRow(
-                id=rec_id,
-                recorded_at=recorded_at,
-                directory=str(rec_dir),
-                duration_seconds=duration_s,
-                processing_state="pending",
-                processing_started_at=None,
-                processing_completed_at=None,
-                processing_duration_seconds=None,
-                error=None,
-            )
-            self._process_recording_row(row)
         self._set_idle_led(self._disk_blocked())
 
     def _record_until_stop(self, audio, writer: StereoWavWriter, cfg: AppConfig) -> int:
@@ -325,50 +284,6 @@ class EarshotApp:
                 break
             prev_pressed = cur
         return frames_recorded
-
-    def _process_recording_row(self, row: RecordingRow) -> None:
-        hal = self._hal
-        assert hal is not None
-        cfg = self._cfg
-        rec_dir = Path(row.directory)
-        mp3_path = rec_dir / "audio.mp3"
-        result_path = rec_dir / "result.json"
-        rid = row.id
-
-        hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
-
-        with self._db_lock:
-            mark_processing_started(self._conn, rid)
-
-        t0 = time.monotonic()
-        try:
-            process_mp3(
-                mp3_path,
-                result_path,
-                recording_id=rid,
-                recorded_at=row.recorded_at,
-                whisper_model_name=cfg.processing.whisper_model,
-            )
-            proc_s = time.monotonic() - t0
-            with self._db_lock:
-                mark_processing_complete(self._conn, rid, duration_seconds=proc_s)
-                log_event(
-                    self._conn,
-                    "Processing complete",
-                    level="info",
-                    recording_id=rid,
-                )
-        except Exception as exc:
-            err = f"{type(exc).__name__}: {exc}"
-            with self._db_lock:
-                mark_processing_failed(self._conn, rid, err)
-                log_event(
-                    self._conn,
-                    f"Processing failed: {err}",
-                    level="error",
-                    recording_id=rid,
-                )
-            flash_fast_red_three_times(hal)
 
     def _shutdown_sequence(self) -> None:
         hal = self._hal

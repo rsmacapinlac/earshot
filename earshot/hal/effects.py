@@ -1,4 +1,4 @@
-"""Short LED sequences (double-flash green, processing failure blink)."""
+"""Short LED sequences (double-flash green, encode failure blink)."""
 
 from __future__ import annotations
 

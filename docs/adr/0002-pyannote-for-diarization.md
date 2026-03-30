@@ -1,6 +1,6 @@
 # 0002 — pyannote.audio for Speaker Diarization
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0001](0001-on-device-processing.md)
 
 ## Context
 Speaker diarization (segmenting audio by speaker) is required. Alternatives considered:

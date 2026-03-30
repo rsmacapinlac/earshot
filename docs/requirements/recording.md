@@ -44,15 +44,15 @@
 | Bit depth | 16-bit PCM |
 | Channels | Stereo (both mics captured) |
 
-> **Note:** 16kHz is the ReSpeaker HAT's native sample rate and the expected input rate for both Whisper and pyannote.audio. The stereo capture is downmixed to mono before processing.
+> **Note:** 16kHz is the ReSpeaker HAT's native sample rate. The stereo capture is downmixed to mono before encoding.
 
 ## FR-3: Stop Recording
 - Pressing the button again stops the recording (subject to minimum duration).
-- The raw audio is saved locally immediately (before processing begins).
-- The LED pulsates **blue** (slow) while diarization and transcription run.
-- The LED returns to solid **green** once processing is complete.
-- If processing fails, the LED fast-blinks **red** three times before returning to solid **green**.
-- Button presses are ignored during processing — new recordings are blocked until the device returns to idle.
+- The LED pulsates **blue** (slow) while the WAV is encoded to MP3.
+- The LED returns to solid **green** once encoding is complete and the device is ready for a new recording.
+- If encoding fails, the LED fast-blinks **red** three times before returning to solid **green**.
+- Button presses are ignored during encoding — new recordings are blocked until the device returns to idle.
+- Once encoding completes, the recording is queued for API upload in the background.
 
 ## FR-4: Safe Shutdown
 - Holding the button for 3 seconds while idle initiates a safe shutdown (duration configurable).

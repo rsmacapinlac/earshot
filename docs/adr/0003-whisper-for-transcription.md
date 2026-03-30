@@ -1,6 +1,6 @@
 # 0003 — Whisper for Speech-to-Text
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0001](0001-on-device-processing.md)
 
 ## Context
 Per-speaker transcription is required after diarization. A local STT model is needed to satisfy the offline-first requirement (ADR-0001).

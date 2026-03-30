@@ -27,7 +27,7 @@ class AudioConfig:
     sample_rate: int
     channels: int
     bit_depth: int
-    mp3_bitrate: int
+    opus_bitrate: int
     input_device_index: int | None = None
     alsa_pcm: str | None = None
 
@@ -40,15 +40,10 @@ class RecordingConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class ProcessingConfig:
-    whisper_model: str
-    enabled: bool = True
-
-
-@dataclass(frozen=True, slots=True)
 class StorageConfig:
     data_dir: Path
     disk_threshold_percent: float
+    recordings_dir: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +56,6 @@ class ApiConfig:
 class AppConfig:
     audio: AudioConfig
     recording: RecordingConfig
-    processing: ProcessingConfig
     storage: StorageConfig
     api: ApiConfig
     config_path: Path
@@ -86,16 +80,21 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
     raw = _load_toml(path)
     audio = _section(raw, "audio")
     recording = _section(raw, "recording")
-    processing = _section(raw, "processing")
     storage = _section(raw, "storage")
     api = _section(raw, "api")
     data_dir = Path(str(storage["data_dir"])).expanduser().resolve()
+    recordings_dir_raw = storage.get("recordings_dir")
+    recordings_dir = (
+        Path(str(recordings_dir_raw)).expanduser().resolve()
+        if recordings_dir_raw
+        else data_dir / "recordings"
+    )
     return AppConfig(
         audio=AudioConfig(
             sample_rate=int(audio["sample_rate"]),
             channels=int(audio["channels"]),
             bit_depth=int(audio["bit_depth"]),
-            mp3_bitrate=int(audio["mp3_bitrate"]),
+            opus_bitrate=int(audio["opus_bitrate"]),
             input_device_index=(
                 int(audio["input_device_index"])
                 if audio.get("input_device_index") is not None
@@ -113,13 +112,10 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
             min_duration_seconds=float(recording["min_duration_seconds"]),
             shutdown_hold_seconds=float(recording["shutdown_hold_seconds"]),
         ),
-        processing=ProcessingConfig(
-            whisper_model=str(processing["whisper_model"]),
-            enabled=bool(processing.get("enabled", True)),
-        ),
         storage=StorageConfig(
             data_dir=data_dir,
             disk_threshold_percent=float(storage["disk_threshold_percent"]),
+            recordings_dir=recordings_dir,
         ),
         api=ApiConfig(
             endpoint=str(api.get("endpoint") or "").strip(),

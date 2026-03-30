@@ -14,10 +14,10 @@ Each ADR follows this structure:
 
 | ADR | Title | Status |
 |---|---|---|
-| [0001](0001-on-device-processing.md) | On-device audio processing | Accepted |
-| [0002](0002-pyannote-for-diarization.md) | pyannote.audio for speaker diarization | Accepted |
-| [0003](0003-whisper-for-transcription.md) | Whisper for speech-to-text | Accepted |
-| [0004](0004-mp3-as-primary-audio-format.md) | MP3 as primary audio storage format | Accepted |
+| [0001](0001-on-device-processing.md) | Audio processing | Accepted |
+| [0002](0002-pyannote-for-diarization.md) | pyannote.audio for speaker diarization | Superseded by 0001 |
+| [0003](0003-whisper-for-transcription.md) | Whisper for speech-to-text | Superseded by 0001 |
+| [0004](0004-opus-as-primary-audio-format.md) | Opus as primary audio storage format | Accepted |
 | [0005](0005-offline-first-with-api-sync.md) | Offline-first with opportunistic API sync | Accepted |
 | [0006](0006-python-venv-over-docker.md) | Python venv over Docker | Accepted |
 | [0007](0007-hardware-abstraction-layer.md) | Hardware abstraction layer | Accepted |

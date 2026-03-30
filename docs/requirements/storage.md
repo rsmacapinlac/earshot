@@ -1,10 +1,10 @@
 # Storage
 
 ## FR-6: Local Storage
-- Raw audio and structured results are always saved locally.
-- Storage path: `~/earshot/recordings/<YYYYMMDDTHHMMSS>/` (e.g. `20260329T143022`)
-  - `audio.mp3` — compressed recording (encoded via `ffmpeg`, mono, 16kHz, default 128 kbps, configurable)
-  - `result.json` — diarization + transcript output
+- Raw audio is always saved locally until successfully uploaded.
+- Default storage path: `~/earshot/recordings/<YYYYMMDDTHHMMSS>/` (e.g. `20260329T143022`)
+- The recordings directory is configurable via `storage.recordings_dir` in `config.toml` (e.g. to point at a USB drive).
+  - `audio.opus` — compressed recording (encoded via `ffmpeg`, mono, 16kHz, default 32 kbps, configurable)
 
 ### Disk Space Management
 - Disk space is checked before each new recording begins.
@@ -14,6 +14,6 @@
 
 ### Recording Pipeline
 1. Capture audio to a temporary WAV file.
-2. Encode WAV to MP3.
-3. Delete the WAV once MP3 is confirmed written.
-4. All subsequent processing (diarization, transcription) operates on the MP3.
+2. Encode WAV to Opus.
+3. Delete the WAV once the `.opus` file is confirmed written.
+4. Queue the recording for API upload.

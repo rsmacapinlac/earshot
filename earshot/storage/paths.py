@@ -13,11 +13,7 @@ def database_path(cfg: AppConfig) -> Path:
 
 
 def recordings_root(cfg: AppConfig) -> Path:
-    return cfg.storage.data_dir / "recordings"
-
-
-def tmp_dir(cfg: AppConfig) -> Path:
-    return cfg.storage.data_dir / "tmp"
+    return cfg.storage.recordings_dir
 
 
 def new_recording_stamp(now: datetime | None = None) -> str:

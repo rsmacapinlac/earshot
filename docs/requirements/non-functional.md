@@ -1,21 +1,14 @@
 # Non-Functional Requirements
 
-## NFR-1: Offline-First
-The device must be fully functional with no internet connection. API sync is opportunistic.
+## NFR-1: Offline-First Recording
+The device must be able to record and store audio with no internet connection. API sync and transcription are opportunistic — recordings are never lost due to lack of connectivity.
 
-## NFR-2: On-Device Processing
-All audio processing (diarization + transcription) runs on the Pi 4B. No audio is sent to external services for processing.
+## NFR-2: Resilience
+- A crash or power loss after recording but before MP3 encoding must not lose the raw audio.
+- On restart, any unencoded recordings (WAV present, no MP3) are detected and encoded automatically.
+- On restart, any unsynced recordings are re-queued for upload.
 
-## NFR-3: Model Size Constraints
-Given Pi 4B hardware constraints (4GB RAM, no GPU):
-- STT model: Whisper `small` or `base` (configurable, default `base`)
-- Diarization: pyannote.audio with CPU-optimised settings
-
-## NFR-4: Resilience
-- A crash or power loss after recording but before processing must not lose the raw audio.
-- On restart, any unprocessed recordings are detected and processed automatically.
-
-## NFR-5: Startup Time
+## NFR-3: Startup Time
 The application should reach the green-light ready state within 60 seconds of boot.
 
 ## Out of Scope (v1)

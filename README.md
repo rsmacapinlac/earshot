@@ -1,14 +1,13 @@
 # Earshot
 
-A Raspberry Pi application that records conversations, identifies individual speakers, and transcribes what was said — all on-device, with no cloud processing required.
+A Raspberry Pi application that records conversations and uploads audio to an API for transcription and speaker diarization.
 
 ## How it works
 
 1. The LED pulsates **white** while booting, then glows solid **green** when ready.
 2. Press the button to start recording — the LED pulsates **red**.
-3. Press the button again to stop — the LED pulsates **blue** while processing.
-4. The recording is transcribed and separated by speaker automatically.
-5. The LED returns to solid **green** when done. Results are saved locally and synced to an API when internet is available.
+3. Press the button again to stop — the LED pulsates **blue** while the audio is encoded.
+4. The LED returns to solid **green** when ready. The recording is uploaded to the API when internet is available, where transcription and speaker diarization are performed.
 
 To safely shut down, hold the button for 3 seconds while idle.
 
@@ -20,7 +19,6 @@ To safely shut down, hold the button for 3 seconds while idle.
 ## Requirements
 
 - [Raspberry Pi OS Lite 64-bit](https://www.raspberrypi.com/software/)
-- A [Hugging Face](https://huggingface.co) account (required once during install to download diarization models)
 
 ## Install
 
@@ -28,44 +26,29 @@ To safely shut down, hold the button for 3 seconds while idle.
 
 - **Raspberry Pi OS Lite 64-bit** flashed and booted (Bookworm or later)
 - **ReSpeaker 2-Mic Pi HAT** physically attached before first boot
-- **[Hugging Face](https://huggingface.co) account** — a read-only access token is needed once during install to download the speaker diarization model; no account or internet connection is needed after that
-  - Get a token at: https://huggingface.co/settings/tokens
-  - Accept the model terms at: https://hf.co/pyannote/speaker-diarization-3.1 and https://hf.co/pyannote/segmentation-3.0
-
-### Install from a clone (recommended)
+### Install
 
 Run **as your normal login user** (e.g. `ritchie` or `pi`). The script uses `sudo` where it needs root.
 
 ```bash
 git clone https://github.com/rsmacapinlac/earshot.git ~/earshot
-bash ~/earshot/installer/earshot-install.sh
+bash ~/earshot/installer/install.sh
 ```
 
-Updates: `cd ~/earshot && git pull && bash installer/earshot-install.sh`
-
-### One-line install (curl)
-
-Optional — some CDNs cache URLs aggressively; cloning avoids that.
-
-```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/rsmacapinlac/earshot@main/installer/earshot-install.sh | bash
-```
-
-Stub that chains to the same script: `…/installer/install.sh`. **Do not use `sudo curl … | bash`.**
+Updates: `cd ~/earshot && git pull && bash installer/install.sh`
 
 The installer runs in **one session** (interactive prompts, then mostly automated). It enables the `earshot` service but does **not** start it until **after** a reboot, so the ReSpeaker ALSA device can appear cleanly.
 
-Typical order (~25–50 minutes depending on network):
+Typical order (~10–20 minutes depending on network):
 
-1. Prompts for your Hugging Face token and optional API endpoint
+1. Prompts for optional API endpoint
 2. Updates system packages and installs git/curl
 3. Installs the ReSpeaker HAT kernel driver (HinTak seeed-voicecard fork)
 4. Installs Python, ffmpeg, and audio build dependencies
-5. Clones the repo to `~/earshot/`, creates a venv, installs PyTorch (CPU) and Python deps
-6. Downloads the Whisper `base` model (~150 MB) and pyannote diarization model (~1 GB)
-7. Writes `~/earshot/config.toml`
-8. Installs and **enables** the `earshot` systemd service
-9. **Reboots** the Pi once at the end
+5. Clones the repo to `~/earshot/`, creates a venv, installs Python deps
+6. Writes `~/earshot/config.toml`
+7. Installs and **enables** the `earshot` systemd service
+8. **Reboots** the Pi once at the end
 
 After boot, check the service and audio:
 
@@ -98,3 +81,5 @@ git tag v0.1 && git push --tags
 ```
 
 `0.x` = pre-stable. `1.0` marks the first stable release.
+
+## Backlog
