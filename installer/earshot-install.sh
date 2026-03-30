@@ -167,10 +167,33 @@ git clone --depth=1 "$SEEED_URL" "$seeed_dir"
 (cd "$seeed_dir" && sudo bash install.sh)
 rm -rf "$seeed_dir"
 
-# ── DKMS: avoid kernel upgrade hook failure (see installer comments in v0.1) ──
+# ── Ensure seeed-2mic-voicecard dtoverlay is in config.txt ───────────────────
+# The HinTak install.sh writes i2s-mmap/dtparam=i2s=on but may omit the
+# seeed-2mic-voicecard overlay that creates the ALSA sound card device node.
+# The MCLK itself is provided by the DKMS kernel module above; the dtoverlay
+# is needed so the card appears in arecord -l and PipeWire can discover it.
+_boot_cfg=""
+for _f in /boot/firmware/config.txt /boot/config.txt; do
+    [ -f "$_f" ] && _boot_cfg="$_f" && break
+done
+if [ -n "$_boot_cfg" ]; then
+    if ! grep -q "dtoverlay=seeed-2mic-voicecard" "$_boot_cfg"; then
+        log "Adding dtoverlay=seeed-2mic-voicecard to $_boot_cfg..."
+        echo "dtoverlay=seeed-2mic-voicecard" | sudo tee -a "$_boot_cfg" >/dev/null
+    else
+        info "dtoverlay=seeed-2mic-voicecard already present in $_boot_cfg."
+    fi
+else
+    err "Could not find Pi boot config.txt — add 'dtoverlay=seeed-2mic-voicecard' manually."
+fi
 
-log "Removing seeed-voicecard from DKMS to prevent kernel hook failures..."
-sudo dkms remove seeed-voicecard/0.3 --all 2>/dev/null || true
+# ── DKMS: seeed-voicecard provides the ASoC machine driver that configures MCLK ─
+# Do NOT remove seeed-voicecard from DKMS. The DKMS kernel module
+# (snd_soc_seeed_voicecard) is the machine driver that ties the WM8960 codec
+# to the BCM2835 I2S interface and provides MCLK. Without it, the ALSA card
+# enumerates but every hw_params call fails with "No MCLK configured".
+# Kernel upgrades will trigger a DKMS rebuild automatically — this is correct
+# behaviour, not a problem to work around.
 
 log "Installing system dependencies..."
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
