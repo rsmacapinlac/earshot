@@ -164,6 +164,10 @@ sudo apt-get install -y git curl
 log "Installing ReSpeaker seeed-voicecard driver..."
 seeed_dir=$(mktemp -d)
 git clone --depth=1 "$SEEED_URL" "$seeed_dir"
+# Patch seeed-voicecard.c for kernel 6.6+: rtd->id was replaced by rtd->num.
+# Without this patch, DKMS fails to build on kernel 6.12+ with:
+#   error: 'struct snd_soc_pcm_runtime' has no member named 'id'
+sed -i 's/rtd->id/rtd->num/g' "$seeed_dir/seeed-voicecard.c"
 (cd "$seeed_dir" && sudo bash install.sh)
 rm -rf "$seeed_dir"
 
