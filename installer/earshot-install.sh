@@ -222,8 +222,8 @@ log "Installing PyTorch (CPU build)..."
 log "Installing Python dependencies..."
 "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/installer/requirements.txt"
 
-log "Installing Earshot package (editable)..."
-"$VENV_DIR/bin/pip" install --quiet -e "$REPO_DIR"
+log "Installing Earshot package (editable) with Pi extras..."
+"$VENV_DIR/bin/pip" install --quiet -e "${REPO_DIR}[pi]"
 
 # ── Models ───────────────────────────────────────────────────────────────────
 

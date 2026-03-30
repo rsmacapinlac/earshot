@@ -8,6 +8,27 @@ version = "0.1.0"
 description = "On-device conversation recorder and transcriber for Raspberry Pi"
 readme = "README.md"
 requires-python = ">=3.11"
+dependencies = [
+    "openai-whisper",
+    "pyannote.audio==3.3.2",
+    "matplotlib>=3.8",
+    "huggingface_hub<1.0",
+    "soundfile",
+    "tomli-w",
+    "httpx",
+    "numpy>=2.0",
+]
+
+[project.optional-dependencies]
+# Raspberry Pi: ReSpeaker capture, APA102 LED, GPIO button (see ADR 0007).
+pi = [
+    "pyaudio",
+    "apa102-pi",
+    "RPi.GPIO",
+    "spidev",
+]
+# CPU torch wheels are installed separately by the installer (see installer/requirements.txt).
+torch = ["torch", "torchaudio"]
 
 [tool.setuptools.packages.find]
 where = ["."]
