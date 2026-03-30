@@ -77,8 +77,15 @@ class PiButton(ButtonDriver):
         import RPi.GPIO as GPIO  # type: ignore[import-untyped]
 
         self._GPIO = GPIO
+        GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(_BUTTON_GPIO_BCM, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        raw = GPIO.input(_BUTTON_GPIO_BCM)
+        _log.info(
+            "Button on GPIO%d (pull-up, active-low): initial line reads %s",
+            _BUTTON_GPIO_BCM,
+            "LOW — button appears pressed; release it for idle" if raw == GPIO.LOW else "HIGH — not pressed",
+        )
 
     def pressed(self) -> bool:
         return self._GPIO.input(_BUTTON_GPIO_BCM) == self._GPIO.LOW

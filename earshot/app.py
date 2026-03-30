@@ -129,6 +129,7 @@ class EarshotApp:
                 time.sleep(0.5)
 
             self._set_idle_led(False)
+            _log.info("Ready: solid green = idle; orange pulse = disk full; press button to record.")
 
             action = self._wait_idle_button()
             if action == "shutdown":
@@ -143,36 +144,73 @@ class EarshotApp:
             self._recording_session()
 
     def _wait_idle_button(self) -> str:
+        """Wait for a debounced short click (record) or long hold (shutdown)."""
         hal = self._hal
         assert hal is not None
         hold = self._cfg.recording.shutdown_hold_seconds
-        debounce_s = 0.05
+        min_click_s = 0.03
+        poll_s = 0.02
+        heartbeat_deadline = time.monotonic() + 45.0
+
         while True:
+            # Wait for a stable *released* state (avoids interpreting bounce as a release).
+            while True:
+                if not hal.button.pressed():
+                    time.sleep(poll_s)
+                    if not hal.button.pressed():
+                        break
+                else:
+                    now = time.monotonic()
+                    if now >= heartbeat_deadline:
+                        _log.info(
+                            "Still waiting for button (GPIO17, active-low). "
+                            "If the LED never reacts, check HAT seating, wiring, and "
+                            "that the earshot service has the gpio supplementary group."
+                        )
+                        heartbeat_deadline = now + 120.0
+                time.sleep(poll_s)
+
+            # Wait for a stable *press*.
             while not hal.button.pressed():
-                time.sleep(0.02)
+                time.sleep(poll_s)
+            time.sleep(poll_s)
+            if not hal.button.pressed():
+                continue
+
             t_down = time.monotonic()
             while hal.button.pressed():
                 if time.monotonic() - t_down >= hold:
+                    _log.info("Button held %.0fs — safe shutdown", hold)
                     return "shutdown"
-                time.sleep(0.02)
+                time.sleep(poll_s)
+
             held = time.monotonic() - t_down
-            if held < debounce_s:
+            if held < min_click_s:
+                _log.debug("Ignoring very short button edge (%.0f ms)", held * 1000)
                 continue
             if held >= hold:
                 return "shutdown"
+            _log.info("Button: starting recording (press lasted %.2fs)", held)
             return "click"
+
+    def _snap_recording_led(self, hal: Hal) -> None:
+        """Solid red on hardware immediately; then slow pulse via the LED facade."""
+        if hal.pi_led is not None:
+            hal.pi_led.set_target_rgb(255, 0, 0)
+            hal.pi_led.render_scaled(1.0)
+        hal.led.set_colour_and_pattern(255, 0, 0, LedPattern.SLOW_PULSE)
 
     def _recording_session(self) -> None:
         hal = self._hal
         assert hal is not None
         cfg = self._cfg
+        self._snap_recording_led(hal)
+
         stamp = new_recording_stamp()
         rec_dir = recording_directory(cfg, stamp)
         rec_dir.mkdir(parents=True, exist_ok=True)
         wav_path = rec_dir / "recording.wav"
         recorded_at = datetime.now().astimezone().replace(microsecond=0).isoformat()
-
-        hal.led.set_colour_and_pattern(255, 0, 0, LedPattern.SLOW_PULSE)
 
         audio = hal.new_audio_capture()
         writer: StereoWavWriter | None = None
