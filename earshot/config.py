@@ -22,11 +22,14 @@ def _load_toml(path: Path) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class AudioConfig:
+    """When ``alsa_pcm`` is set, capture uses ``arecord`` (recommended on Pi + ReSpeaker)."""
+
     sample_rate: int
     channels: int
     bit_depth: int
     mp3_bitrate: int
     input_device_index: int | None = None
+    alsa_pcm: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +98,12 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
             input_device_index=(
                 int(audio["input_device_index"])
                 if audio.get("input_device_index") is not None
+                else None
+            ),
+            alsa_pcm=(
+                str(audio["alsa_pcm"]).strip()
+                if audio.get("alsa_pcm") is not None
+                and str(audio["alsa_pcm"]).strip()
                 else None
             ),
         ),

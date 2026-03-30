@@ -281,6 +281,9 @@ cfg = {
         "channels": 2,
         "bit_depth": 16,
         "mp3_bitrate": 128,
+        # ReSpeaker: PortAudio/PyAudio often fails; arecord + plughw is reliable.
+        # If capture fails, run `arecord -l` and set card/device (e.g. plughw:2,0).
+        "alsa_pcm": "plughw:3,0",
     },
     "recording": {
         "max_duration_seconds": 3600,
@@ -304,7 +307,10 @@ if secret:
 header = (
     "# Earshot Configuration\n"
     "# Edit this file to customise behaviour.\n"
-    "# Apply changes: sudo systemctl restart earshot\n\n"
+    "# Apply changes: sudo systemctl restart earshot\n"
+    "#\n"
+    "# audio.alsa_pcm — ALSA capture device for arecord (preferred on Pi).\n"
+    "#   Run: arecord -l   Use plughw:CARD,DEVICE (rate conversion).\n\n"
 )
 
 config_path.parent.mkdir(parents=True, exist_ok=True)

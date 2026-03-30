@@ -8,7 +8,7 @@ import os
 from earshot.config import AppConfig
 from earshot.hal.animator import LedAnimator
 from earshot.hal.bundle import Hal
-from earshot.hal.pi import PiAudioCapture, PiButton, PiLED
+from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton, PiLED
 from earshot.hal.protocols import AudioCapture, ButtonDriver, LEDDriver, LedPattern
 from earshot.hal.stub import StubAudioCapture, StubButton, StubLED, StdinPulseButton
 
@@ -89,8 +89,12 @@ def _pi_hal(cfg: AppConfig) -> Hal:
     led: LEDDriver = _AnimatingLed(animator)
     button = PiButton()
     device_index = cfg.audio.input_device_index
+    alsa_pcm = cfg.audio.alsa_pcm
 
     def audio_factory() -> AudioCapture:
+        if alsa_pcm:
+            _log.info("using ALSA capture device %r (arecord)", alsa_pcm)
+            return PiAlsaCapture(alsa_pcm, cfg.audio.sample_rate, cfg.audio.channels)
         return PiAudioCapture(cfg.audio.sample_rate, cfg.audio.channels, device_index)
 
     def on_close() -> None:

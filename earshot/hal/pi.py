@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
 
 import pyaudio
 
@@ -83,6 +85,79 @@ class PiButton(ButtonDriver):
 
     def close(self) -> None:
         self._GPIO.cleanup()
+
+
+class PiAlsaCapture(AudioCapture):
+    """Capture via ALSA `arecord` (raw PCM). Prefer `plughw:CARD,DEV` so rates are converted in ALSA."""
+
+    def __init__(self, alsa_pcm: str, sample_rate: int, channels: int) -> None:
+        self._alsa_pcm = alsa_pcm
+        self._sample_rate = sample_rate
+        self._channels = channels
+        self._proc: subprocess.Popen[bytes] | None = None
+
+    def start(self) -> None:
+        if self._proc is not None:
+            return
+        if not shutil.which("arecord"):
+            raise RuntimeError("arecord not found; install alsa-utils")
+        cmd = [
+            "arecord",
+            "-D",
+            self._alsa_pcm,
+            "-f",
+            "S16_LE",
+            "-c",
+            str(self._channels),
+            "-r",
+            str(self._sample_rate),
+            "-t",
+            "raw",
+            "-q",
+            "-",
+        ]
+        self._proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            bufsize=0,
+        )
+
+    def read_frames(self, num_frames: int) -> bytes:
+        if self._proc is None or self._proc.stdout is None:
+            raise RuntimeError("PiAlsaCapture.start() not called")
+        nbytes = num_frames * self._channels * 2
+        chunks: list[bytes] = []
+        remaining = nbytes
+        while remaining > 0:
+            block = self._proc.stdout.read(remaining)
+            if not block:
+                code = self._proc.poll()
+                raise RuntimeError(f"arecord stopped while reading (exit {code})")
+            chunks.append(block)
+            remaining -= len(block)
+        return b"".join(chunks)
+
+    def stop(self) -> None:
+        if self._proc is None:
+            return
+        if self._proc.poll() is None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait(timeout=2.0)
+        if self._proc.stdout:
+            try:
+                self._proc.stdout.close()
+            except OSError:
+                pass
+        self._proc = None
+
+    def close(self) -> None:
+        self.stop()
 
 
 class PiAudioCapture(AudioCapture):
