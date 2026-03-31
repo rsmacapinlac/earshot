@@ -1,6 +1,6 @@
 # Earshot — Requirements Index
 
-Earshot is a Raspberry Pi 4B application that records audio via a ReSpeaker 2-Mic Pi HAT, performs on-device speaker diarization and transcription, and syncs results to an API when internet is available.
+Earshot is a Raspberry Pi application (Pi 4B or Pi Zero 2W) that records audio via a ReSpeaker 2-Mic Pi HAT and syncs audio to an API for server-side transcription and diarization when internet is available.
 
 ## Documents
 
@@ -11,6 +11,7 @@ Earshot is a Raspberry Pi 4B application that records audio via a ReSpeaker 2-Mi
 | [processing.md](processing.md) | On-device speaker diarization and transcription |
 | [storage.md](storage.md) | Local file storage and audio encoding |
 | [api-sync.md](api-sync.md) | API upload and offline queueing |
+| [connectivity.md](connectivity.md) | WiFi connectivity and sync gating |
 | [install.md](install.md) | One-line installer requirements |
 | [non-functional.md](non-functional.md) | Performance, resilience, and constraints |
 | [open-questions.md](open-questions.md) | Unresolved decisions and open questions |

@@ -25,12 +25,11 @@ from earshot.storage import (
     recording_directory,
     recordings_root,
 )
-from earshot.sync import sync_pending_uploads
+from earshot.sync import check_connectivity, sync_pending_uploads
 
 _log = logging.getLogger(__name__)
 
 _CHUNK_FRAMES = 1024
-_SYNC_INTERVAL_S = 30.0
 
 
 class EarshotApp:
@@ -40,6 +39,7 @@ class EarshotApp:
         self._db_lock = threading.Lock()
         self._hal: Hal | None = None
         self._sync_stop = threading.Event()
+        self._idle_event = threading.Event()
 
     def run(self) -> None:
         cfg = self._cfg
@@ -65,6 +65,8 @@ class EarshotApp:
             log_event(self._conn, "Disk threshold reached at startup", level="warning")
 
         self._set_idle_led(disk_blocked)
+
+        self._idle_event.set()
 
         sync_thread = threading.Thread(
             target=self._sync_loop,
@@ -292,6 +294,7 @@ class EarshotApp:
         hal = self._hal
         assert hal is not None
         cfg = self._cfg
+        self._idle_event.clear()
         self._snap_recording_led(hal)
 
         # One directory for the whole session, named after the session start time.
@@ -299,95 +302,98 @@ class EarshotApp:
         session_dir = recording_directory(cfg, session_stamp)
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        audio = hal.new_audio_capture()
         try:
-            audio.start()
-        except Exception:
-            _log.exception("audio capture start failed")
-            audio.close()
-            shutil.rmtree(session_dir, ignore_errors=True)
-            self._set_idle_led(self._disk_blocked())
-            return
+            audio = hal.new_audio_capture()
+            try:
+                audio.start()
+            except Exception:
+                _log.exception("audio capture start failed")
+                audio.close()
+                shutil.rmtree(session_dir, ignore_errors=True)
+                self._set_idle_led(self._disk_blocked())
+                return
 
-        encode_threads: list[threading.Thread] = []
-        session_too_short = False
-        chunk_num = 0
+            encode_threads: list[threading.Thread] = []
+            session_too_short = False
+            chunk_num = 0
 
-        try:
-            while True:
-                chunk_num += 1
-                wav_name = f"recording-{chunk_num:03d}.wav"
-                opus_name = f"audio-{chunk_num:03d}.opus"
-                wav_path = session_dir / wav_name
-                recorded_at = datetime.now().astimezone().replace(microsecond=0).isoformat()
+            try:
+                while True:
+                    chunk_num += 1
+                    wav_name = f"recording-{chunk_num:03d}.wav"
+                    opus_name = f"audio-{chunk_num:03d}.opus"
+                    wav_path = session_dir / wav_name
+                    recorded_at = datetime.now().astimezone().replace(microsecond=0).isoformat()
 
-                writer: StereoWavWriter | None = None
-                try:
-                    writer = StereoWavWriter(
-                        wav_path,
-                        sample_rate=cfg.audio.sample_rate,
-                        channels=cfg.audio.channels,
+                    writer: StereoWavWriter | None = None
+                    try:
+                        writer = StereoWavWriter(
+                            wav_path,
+                            sample_rate=cfg.audio.sample_rate,
+                            channels=cfg.audio.channels,
+                        )
+                        frames_recorded, reason = self._record_until_stop(audio, writer, cfg)
+                    except Exception:
+                        _log.exception("recording failed")
+                        if writer is not None:
+                            try:
+                                writer.close()
+                            except OSError:
+                                pass
+                        wav_path.unlink(missing_ok=True)
+                        break
+
+                    writer.close()
+
+                    duration_s = frames_recorded / float(cfg.audio.sample_rate)
+                    if duration_s < cfg.recording.min_duration_seconds:
+                        wav_path.unlink(missing_ok=True)
+                        if reason == "button" and not encode_threads:
+                            session_too_short = True
+                        if reason == "button":
+                            break
+                        continue
+
+                    t = threading.Thread(
+                        target=self._encode_chunk,
+                        args=(session_dir, wav_path, opus_name, duration_s, recorded_at),
+                        name=f"earshot-encode-{session_stamp}-{chunk_num:03d}",
+                        daemon=True,
                     )
-                    frames_recorded, reason = self._record_until_stop(audio, writer, cfg)
-                except Exception:
-                    _log.exception("recording failed")
-                    if writer is not None:
-                        try:
-                            writer.close()
-                        except OSError:
-                            pass
-                    wav_path.unlink(missing_ok=True)
-                    break
+                    t.start()
+                    encode_threads.append(t)
 
-                writer.close()
-
-                duration_s = frames_recorded / float(cfg.audio.sample_rate)
-                if duration_s < cfg.recording.min_duration_seconds:
-                    wav_path.unlink(missing_ok=True)
-                    if reason == "button" and not encode_threads:
-                        session_too_short = True
                     if reason == "button":
                         break
-                    continue
+                    _log.info("Rolling over to chunk %d after %.0fs", chunk_num + 1, duration_s)
 
-                t = threading.Thread(
-                    target=self._encode_chunk,
-                    args=(session_dir, wav_path, opus_name, duration_s, recorded_at),
-                    name=f"earshot-encode-{session_stamp}-{chunk_num:03d}",
-                    daemon=True,
-                )
-                t.start()
-                encode_threads.append(t)
+            finally:
+                try:
+                    audio.stop()
+                except Exception:
+                    pass
+                audio.close()
 
-                if reason == "button":
-                    break
-                _log.info("Rolling over to chunk %d after %.0fs", chunk_num + 1, duration_s)
+            if not encode_threads and session_too_short:
+                shutil.rmtree(session_dir, ignore_errors=True)
+                flash_double_green(hal)
+                self._set_idle_led(self._disk_blocked())
+                return
 
-        finally:
+            if encode_threads:
+                hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+                for t in encode_threads:
+                    t.join()
+
+            # Clean up session directory if encoding left nothing behind.
             try:
-                audio.stop()
-            except Exception:
-                pass
-            audio.close()
+                session_dir.rmdir()  # Only succeeds if the directory is empty.
+            except OSError:
+                pass  # Directory has files — expected.
 
-        if not encode_threads and session_too_short:
-            shutil.rmtree(session_dir, ignore_errors=True)
-            flash_double_green(hal)
             self._set_idle_led(self._disk_blocked())
-            return
-
-        if encode_threads:
-            hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
-            for t in encode_threads:
-                t.join()
-
-        # Clean up session directory if encoding left nothing behind.
-        try:
-            session_dir.rmdir()  # Only succeeds if the directory is empty.
-        except OSError:
-            pass  # Directory has files — expected.
-
-        self._set_idle_led(self._disk_blocked())
+        finally:
+            self._idle_event.set()
 
     def _encode_chunk(
         self,
@@ -480,7 +486,19 @@ class EarshotApp:
         )
 
     def _sync_loop(self) -> None:
-        while not self._sync_stop.wait(_SYNC_INTERVAL_S):
+        interval = self._cfg.api.sync_interval_seconds
+        was_connected = False
+        while not self._sync_stop.wait(interval):
+            if not self._idle_event.is_set():
+                _log.debug("Sync skipped: device not idle")
+                continue
+            connected = check_connectivity()
+            if connected and not was_connected:
+                _log.info("Network connectivity restored — syncing")
+            was_connected = connected
+            if not connected:
+                _log.debug("Sync skipped: no connectivity")
+                continue
             try:
                 with self._db_lock:
                     sync_pending_uploads(

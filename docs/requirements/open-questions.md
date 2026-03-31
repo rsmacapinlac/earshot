@@ -10,3 +10,4 @@
 | TQ-7 | What happens if the MP3 upload fails partway through? Partial upload state needs a defined recovery path. | api-sync.md |
 | UX-1 | Should the device emit an audio cue (beep) on state transitions? Requires a speaker — out of scope for v1 but worth noting for v2. | recording.md |
 | UX-3 | Should there be a visible indicator for recordings pending sync (e.g. slow blue pulsating while idle)? | recording.md, api-sync.md |
+| OQ-8 | What should the connectivity polling interval be while idle? | connectivity.md |

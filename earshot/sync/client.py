@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 import sqlite3
 from pathlib import Path
 
@@ -11,6 +12,15 @@ import httpx
 from earshot.storage import db as dbmod
 
 _log = logging.getLogger(__name__)
+
+
+def check_connectivity(host: str = "8.8.8.8", port: int = 53, timeout: float = 3.0) -> bool:
+    """Return True if a TCP connection to *host:port* can be established (FR-9.3)."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def try_sync_recording(

@@ -50,6 +50,7 @@ class StorageConfig:
 class ApiConfig:
     endpoint: str
     secret: str | None
+    sync_interval_seconds: float = 30.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +121,7 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
         api=ApiConfig(
             endpoint=str(api.get("endpoint") or "").strip(),
             secret=(str(api["secret"]).strip() if api.get("secret") else None),
+            sync_interval_seconds=float(api.get("sync_interval_seconds", 30.0)),
         ),
         config_path=path,
     )

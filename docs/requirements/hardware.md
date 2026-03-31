@@ -4,12 +4,12 @@
 
 | | Minimum | Recommended |
 |---|---|---|
-| Model | Raspberry Pi 4B 2GB | Raspberry Pi 4B 4GB |
-| RAM | 2GB | 4GB |
-| CPU | Cortex-A72 (1.5GHz quad-core) | Cortex-A72 (1.5GHz quad-core) |
+| Model | Raspberry Pi Zero 2W | Raspberry Pi 4B 4GB |
+| RAM | 512MB | 4GB |
+| CPU | Cortex-A53 (1GHz quad-core) | Cortex-A72 (1.5GHz quad-core) |
 | OS | Raspberry Pi OS Lite 64-bit | Raspberry Pi OS Lite 64-bit |
 
-> **Note:** Pi 3B/3B+ (1GB) and Pi Zero 2W are not supported — insufficient RAM for on-device Whisper + diarization. Pi 5 compatibility is untested.
+> **Note:** Pi 3B/3B+ (1GB) are not supported. Pi Zero 2W is supported now that transcription and diarization are server-side — the device only needs to record and upload. Pi 5 compatibility is untested.
 
 ## Audio HAT
 
