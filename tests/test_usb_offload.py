@@ -77,7 +77,7 @@ class TestFindUsbMount:
             result = find_usb_mount()
         assert result is None
 
-    def test_returns_none_when_removable_but_not_mounted(self):
+    def test_mounts_and_returns_path_when_removable_not_auto_mounted(self):
         output = lsblk_output([
             {"name": "sdb", "rm": True, "fstype": None, "mountpoint": None,
              "children": [
@@ -85,8 +85,36 @@ class TestFindUsbMount:
                   "mountpoint": None, "children": []}
              ]}
         ])
-        with patch("earshot.usb_offload.subprocess.run") as mock_run:
-            mock_run.return_value = type("R", (), {"stdout": output})()
+        import subprocess as _sp
+        lsblk_result = type("R", (), {"stdout": output, "returncode": 0})()
+        ok_result = type("R", (), {"stdout": "", "returncode": 0})()
+
+        def fake_run(cmd, **kwargs):
+            if cmd[0] == "lsblk":
+                return lsblk_result
+            return ok_result  # sudo mkdir / sudo mount
+
+        with patch("earshot.usb_offload.subprocess.run", side_effect=fake_run):
+            result = find_usb_mount()
+        from earshot.usb_offload import _EARSHOT_MOUNT
+        assert result == _EARSHOT_MOUNT
+
+    def test_returns_none_when_mount_fails(self):
+        output = lsblk_output([
+            {"name": "sdb", "rm": True, "fstype": None, "mountpoint": None,
+             "children": [
+                 {"name": "sdb1", "rm": True, "fstype": "vfat",
+                  "mountpoint": None, "children": []}
+             ]}
+        ])
+        lsblk_result = type("R", (), {"stdout": output, "returncode": 0})()
+
+        def fake_run(cmd, **kwargs):
+            if cmd[0] == "lsblk":
+                return lsblk_result
+            raise OSError("Permission denied")
+
+        with patch("earshot.usb_offload.subprocess.run", side_effect=fake_run):
             result = find_usb_mount()
         assert result is None
 

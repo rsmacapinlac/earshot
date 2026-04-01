@@ -74,7 +74,12 @@ def unmount_usb_stick() -> None:
 def _mount_device(device: str) -> Path | None:
     """Mount *device* at ``_EARSHOT_MOUNT`` using ``sudo -n mount``."""
     try:
-        _EARSHOT_MOUNT.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["sudo", "-n", "mkdir", "-p", str(_EARSHOT_MOUNT)],
+            check=True,
+            timeout=5.0,
+            capture_output=True,
+        )
         subprocess.run(
             ["sudo", "-n", "mount", device, str(_EARSHOT_MOUNT)],
             check=True,
