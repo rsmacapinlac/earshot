@@ -22,7 +22,7 @@ from earshot.storage import (
     recording_directory,
     recordings_root,
 )
-from earshot.usb_offload import find_usb_mount, move_recordings_to_stick
+from earshot.usb_offload import find_usb_device, find_usb_mount, move_recordings_to_stick, unmount_usb_stick
 
 _log = logging.getLogger(__name__)
 
@@ -437,10 +437,9 @@ class EarshotApp:
         """Poll every 2 s for removable FAT32 stick insertion/removal."""
         was_present = False
         while not self._usb_stop.wait(2.0):
-            mount = find_usb_mount()
-            now_present = mount is not None
+            now_present = find_usb_device() is not None
             if now_present and not was_present:
-                _log.info("USB stick detected at %s", mount)
+                _log.info("USB stick detected")
                 self._usb_error.clear()
                 self._usb_stick_pending.set()
             elif not now_present and was_present:
@@ -484,6 +483,7 @@ class EarshotApp:
         except Exception:
             pass
 
+        unmount_usb_stick()
         _log.info("USB offload complete")
         flash_single_blue(hal)
         self._set_idle_led(self._disk_blocked())

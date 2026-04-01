@@ -11,14 +11,16 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
+# Mount point used when the stick is not already auto-mounted.
+_EARSHOT_MOUNT = Path("/mnt/earshot-usb")
 
-def find_usb_mount() -> Path | None:
-    """Return the mount point of the first removable vfat partition, or None.
 
-    Uses ``lsblk`` to enumerate block devices and finds the first removable
-    partition formatted as vfat (FAT32) that is already mounted.  On
-    Raspberry Pi OS with udisks2, removable drives are auto-mounted to
-    ``/media/<user>/<label>`` when inserted.
+def find_usb_device() -> tuple[str, str | None] | None:
+    """Return ``(device_path, mountpoint_or_None)`` for the first removable vfat
+    partition, or ``None`` if no removable vfat device is present.
+
+    Used by the monitor loop to detect insertion/removal without triggering
+    a mount attempt.
     """
     try:
         result = subprocess.run(
@@ -32,12 +34,58 @@ def find_usb_mount() -> Path | None:
         for device in data.get("blockdevices", []):
             for child in device.get("children", []):
                 if child.get("rm") and child.get("fstype") == "vfat":
-                    mp = child.get("mountpoint")
-                    if mp:
-                        return Path(mp)
+                    return f"/dev/{child['name']}", child.get("mountpoint") or None
     except Exception as exc:
         _log.debug("lsblk error: %s", exc)
     return None
+
+
+def find_usb_mount() -> Path | None:
+    """Return the mount point of the removable vfat stick, mounting it if needed.
+
+    If the stick is already mounted (e.g. auto-mounted by udisks2) that path
+    is returned directly.  Otherwise the stick is mounted at ``_EARSHOT_MOUNT``
+    using ``sudo -n mount``.  Returns ``None`` if no stick is present or
+    mounting fails.
+    """
+    info = find_usb_device()
+    if info is None:
+        return None
+    device, mountpoint = info
+    if mountpoint:
+        return Path(mountpoint)
+    return _mount_device(device)
+
+
+def unmount_usb_stick() -> None:
+    """Unmount the earshot USB mount point if it is mounted."""
+    try:
+        subprocess.run(
+            ["sudo", "-n", "umount", str(_EARSHOT_MOUNT)],
+            check=True,
+            timeout=10.0,
+            capture_output=True,
+        )
+        _log.info("Unmounted %s", _EARSHOT_MOUNT)
+    except Exception as exc:
+        _log.warning("umount failed (may already be unmounted): %s", exc)
+
+
+def _mount_device(device: str) -> Path | None:
+    """Mount *device* at ``_EARSHOT_MOUNT`` using ``sudo -n mount``."""
+    try:
+        _EARSHOT_MOUNT.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["sudo", "-n", "mount", device, str(_EARSHOT_MOUNT)],
+            check=True,
+            timeout=10.0,
+            capture_output=True,
+        )
+        _log.info("Mounted %s at %s", device, _EARSHOT_MOUNT)
+        return _EARSHOT_MOUNT
+    except Exception as exc:
+        _log.error("Failed to mount %s: %s", device, exc)
+        return None
 
 
 def move_recordings_to_stick(recordings_root: Path, mount: Path) -> None:
@@ -68,8 +116,6 @@ def _move_session(src: Path, dest: Path) -> None:
         try:
             shutil.copy2(str(src_file), str(dest_file))
         except OSError as exc:
-            # Re-raise ENOSPC so the caller can set the error LED; for other
-            # errors wrap with context.
             if exc.errno == errno.ENOSPC:
                 raise
             raise OSError(exc.errno, f"copy failed for {src_file.name}: {exc}") from exc

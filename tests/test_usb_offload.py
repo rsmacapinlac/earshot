@@ -267,7 +267,7 @@ class TestAppUsbOffload:
             return app._usb_stop.is_set()
 
         t = threading.Thread(target=app._usb_monitor_loop, daemon=True)
-        with patch("earshot.app.find_usb_mount", side_effect=counting_find), \
+        with patch("earshot.app.find_usb_device", side_effect=counting_find), \
              patch.object(app._usb_stop, "wait", side_effect=instant_wait):
             t.start()
             t.join(timeout=3.0)
@@ -283,7 +283,7 @@ class TestAppUsbOffload:
 
         def mock_find():
             call_count[0] += 1
-            return tmp_path / "media" / "EARSHOT" if call_count[0] >= 2 else None
+            return ("/dev/sda1", None) if call_count[0] >= 2 else None
 
         self._run_monitor_iterations(app, mock_find, iterations=3)
 
@@ -302,7 +302,7 @@ class TestAppUsbOffload:
         def mock_find():
             call_count[0] += 1
             # First call: stick present; second: gone
-            return tmp_path if call_count[0] == 1 else None
+            return ("/dev/sda1", None) if call_count[0] == 1 else None
 
         self._run_monitor_iterations(app, mock_find, iterations=3)
 
