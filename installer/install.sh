@@ -201,7 +201,7 @@ sudo mkdir -p /mnt/earshot-usb
 SUDOERS_FILE="/etc/sudoers.d/earshot"
 cat <<SUDOERS | sudo tee "$SUDOERS_FILE" >/dev/null
 # Earshot: allow mount/umount of USB stick for recording offload (FR-11).
-$INSTALL_USER ALL=(ALL) NOPASSWD: /bin/mount * /mnt/earshot-usb, /bin/umount /mnt/earshot-usb
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/mount -o * /dev/sd* /mnt/earshot-usb, /usr/bin/umount /mnt/earshot-usb
 SUDOERS
 sudo chmod 440 "$SUDOERS_FILE"
 info "Sudoers rule written to $SUDOERS_FILE"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import logging
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -61,7 +62,7 @@ def unmount_usb_stick() -> None:
     """Unmount the earshot USB mount point if it is mounted."""
     try:
         subprocess.run(
-            ["sudo", "-n", "umount", str(_EARSHOT_MOUNT)],
+            ["sudo", "-n", "/usr/bin/umount", str(_EARSHOT_MOUNT)],
             check=True,
             timeout=10.0,
             capture_output=True,
@@ -79,8 +80,14 @@ def _mount_device(device: str) -> Path | None:
     restricted via ``/etc/sudoers.d/earshot``.
     """
     try:
+        uid = os.getuid()
+        gid = os.getgid()
         subprocess.run(
-            ["sudo", "-n", "mount", device, str(_EARSHOT_MOUNT)],
+            [
+                "sudo", "-n", "/usr/bin/mount",
+                "-o", f"uid={uid},gid={gid}",
+                device, str(_EARSHOT_MOUNT),
+            ],
             check=True,
             timeout=10.0,
             capture_output=True,
