@@ -127,8 +127,13 @@ class EarshotApp:
         heartbeat_deadline = time.monotonic() + 45.0
 
         while True:
+            if self._usb_stick_pending.is_set():
+                return "usb"
+
             # Wait for a stable released state.
             while True:
+                if self._usb_stick_pending.is_set():
+                    return "usb"
                 if not hal.button.pressed():
                     time.sleep(poll_s)
                     if not hal.button.pressed():
