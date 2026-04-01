@@ -85,14 +85,13 @@ class TestFindUsbMount:
                   "mountpoint": None, "children": []}
              ]}
         ])
-        import subprocess as _sp
         lsblk_result = type("R", (), {"stdout": output, "returncode": 0})()
         ok_result = type("R", (), {"stdout": "", "returncode": 0})()
 
         def fake_run(cmd, **kwargs):
             if cmd[0] == "lsblk":
                 return lsblk_result
-            return ok_result  # sudo mkdir / sudo mount
+            return ok_result  # sudo mount
 
         with patch("earshot.usb_offload.subprocess.run", side_effect=fake_run):
             result = find_usb_mount()

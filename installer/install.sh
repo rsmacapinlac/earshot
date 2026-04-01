@@ -191,6 +191,21 @@ with open(config_path, "wb") as f:
 PYCFG
 chmod 600 "$REPO_DIR/config.toml"
 
+# ── USB offload mount point and sudoers rule ─────────────────────────────────
+# Pre-create /mnt/earshot-usb so the service never needs sudo mkdir at runtime.
+# Restrict sudo to only the two specific commands needed for USB offload —
+# far narrower than a blanket NOPASSWD: ALL.
+
+log "Creating USB mount point and restricted sudoers rule..."
+sudo mkdir -p /mnt/earshot-usb
+SUDOERS_FILE="/etc/sudoers.d/earshot"
+cat <<SUDOERS | sudo tee "$SUDOERS_FILE" >/dev/null
+# Earshot: allow mount/umount of USB stick for recording offload (FR-11).
+$INSTALL_USER ALL=(ALL) NOPASSWD: /bin/mount * /mnt/earshot-usb, /bin/umount /mnt/earshot-usb
+SUDOERS
+sudo chmod 440 "$SUDOERS_FILE"
+info "Sudoers rule written to $SUDOERS_FILE"
+
 # ── systemd ──────────────────────────────────────────────────────────────────
 # Enable only — ALSA/HAT needs a reboot before the first start works cleanly.
 

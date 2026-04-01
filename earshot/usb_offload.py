@@ -72,14 +72,13 @@ def unmount_usb_stick() -> None:
 
 
 def _mount_device(device: str) -> Path | None:
-    """Mount *device* at ``_EARSHOT_MOUNT`` using ``sudo -n mount``."""
+    """Mount *device* at ``_EARSHOT_MOUNT`` using ``sudo -n mount``.
+
+    ``_EARSHOT_MOUNT`` is pre-created by the installer so no runtime mkdir
+    is needed.  Only ``mount`` and ``umount`` require elevated privilege,
+    restricted via ``/etc/sudoers.d/earshot``.
+    """
     try:
-        subprocess.run(
-            ["sudo", "-n", "mkdir", "-p", str(_EARSHOT_MOUNT)],
-            check=True,
-            timeout=5.0,
-            capture_output=True,
-        )
         subprocess.run(
             ["sudo", "-n", "mount", device, str(_EARSHOT_MOUNT)],
             check=True,
