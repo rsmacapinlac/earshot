@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 import time
 import wave
@@ -12,10 +11,9 @@ from unittest.mock import patch
 import pytest
 
 from earshot.app import EarshotApp
-from earshot.config import ApiConfig, AppConfig, AudioConfig, RecordingConfig, StorageConfig
+from earshot.config import AppConfig, AudioConfig, RecordingConfig, StorageConfig
 from earshot.hal.bundle import Hal
 from earshot.hal.stub import StubAudioCapture, StubButton, StubLED
-from earshot.storage.db import connect, init_schema
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +22,7 @@ from earshot.storage.db import connect, init_schema
 
 def make_config(
     tmp_path: Path,
-    max_duration: float = 10.0,
+    chunk_duration: float = 10.0,
     min_duration: float = 0.01,
 ) -> AppConfig:
     return AppConfig(
@@ -35,7 +33,7 @@ def make_config(
             opus_bitrate=32,
         ),
         recording=RecordingConfig(
-            max_duration_seconds=max_duration,
+            chunk_duration_seconds=chunk_duration,
             min_duration_seconds=min_duration,
             shutdown_hold_seconds=3.0,
         ),
@@ -44,15 +42,13 @@ def make_config(
             disk_threshold_percent=90.0,
             recordings_dir=tmp_path / "recordings",
         ),
-        api=ApiConfig(endpoint="", secret=None),
         config_path=tmp_path / "config.toml",
     )
 
 
 def make_hal(button: StubButton) -> Hal:
-    led = StubLED()
     return Hal(
-        led=led,
+        led=StubLED(),
         button=button,
         pi_led=None,
         animator=None,
@@ -63,15 +59,12 @@ def make_hal(button: StubButton) -> Hal:
 
 def make_app(
     tmp_path: Path,
-    max_duration: float = 10.0,
+    chunk_duration: float = 10.0,
     min_duration: float = 0.01,
 ) -> EarshotApp:
-    cfg = make_config(tmp_path, max_duration=max_duration, min_duration=min_duration)
+    cfg = make_config(tmp_path, chunk_duration=chunk_duration, min_duration=min_duration)
     cfg.storage.recordings_dir.mkdir(parents=True, exist_ok=True)
-    app = EarshotApp(cfg)
-    with app._db_lock:
-        init_schema(app._conn)
-    return app
+    return EarshotApp(cfg)
 
 
 def stub_encode(
@@ -109,16 +102,16 @@ def session_dirs(tmp_path: Path) -> list[Path]:
 
 class TestMultiChunkSession:
     def test_single_chunk_creates_audio_001(self, tmp_path):
-        """Button press before max_duration produces audio-001.opus."""
+        """Button press before chunk_duration produces audio-001.opus."""
         button = StubButton()
-        app = make_app(tmp_path, max_duration=10.0)
+        app = make_app(tmp_path, chunk_duration=10.0)
         app._hal = make_hal(button)
 
         with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
             run_session_then_stop(app, button)
 
         dirs = session_dirs(tmp_path)
-        assert len(dirs) == 1, "Expected exactly one session directory"
+        assert len(dirs) == 1
         opus_files = sorted(dirs[0].glob("audio-*.opus"))
         assert len(opus_files) == 1
         assert opus_files[0].name == "audio-001.opus"
@@ -126,11 +119,10 @@ class TestMultiChunkSession:
     def test_rollover_uses_same_directory(self, tmp_path):
         """All chunks from a multi-rollover session share one session directory."""
         button = StubButton()
-        app = make_app(tmp_path, max_duration=0.05)
+        app = make_app(tmp_path, chunk_duration=0.05)
         app._hal = make_hal(button)
 
         with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
-            # 0.3 s at 0.05 s per chunk → ~6 rollovers before button press
             run_session_then_stop(app, button, delay=0.3)
 
         dirs = session_dirs(tmp_path)
@@ -139,7 +131,7 @@ class TestMultiChunkSession:
     def test_rollover_produces_sequential_opus_files(self, tmp_path):
         """Chunk files are numbered audio-001.opus, audio-002.opus, …"""
         button = StubButton()
-        app = make_app(tmp_path, max_duration=0.05)
+        app = make_app(tmp_path, chunk_duration=0.05)
         app._hal = make_hal(button)
 
         with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
@@ -153,7 +145,7 @@ class TestMultiChunkSession:
     def test_no_wav_files_remain_after_session(self, tmp_path):
         """WAV files are deleted after encoding; only opus files remain."""
         button = StubButton()
-        app = make_app(tmp_path, max_duration=0.05)
+        app = make_app(tmp_path, chunk_duration=0.05)
         app._hal = make_hal(button)
 
         with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
@@ -162,28 +154,10 @@ class TestMultiChunkSession:
         wav_files = list(session_dirs(tmp_path)[0].glob("recording-*.wav"))
         assert wav_files == [], f"Leftover WAV files: {wav_files}"
 
-    def test_each_chunk_has_db_record(self, tmp_path):
-        """Every opus chunk has a corresponding row in the recordings table."""
-        button = StubButton()
-        app = make_app(tmp_path, max_duration=0.05)
-        app._hal = make_hal(button)
-
-        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
-            run_session_then_stop(app, button, delay=0.3)
-
-        opus_files = sorted(session_dirs(tmp_path)[0].glob("audio-*.opus"))
-        rows = app._conn.execute(
-            "SELECT audio_filename FROM recordings ORDER BY audio_filename"
-        ).fetchall()
-        db_names = [r[0] for r in rows]
-        disk_names = [f.name for f in opus_files]
-        assert db_names == disk_names, "DB records don't match files on disk"
-
     def test_too_short_discards_session_dir(self, tmp_path):
         """A session where every chunk is under min_duration is fully discarded."""
         button = StubButton()
-        # min_duration longer than any chunk we'd record in 0.02s
-        app = make_app(tmp_path, max_duration=10.0, min_duration=999.0)
+        app = make_app(tmp_path, chunk_duration=10.0, min_duration=999.0)
         app._hal = make_hal(button)
 
         with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
@@ -191,8 +165,39 @@ class TestMultiChunkSession:
 
         dirs = session_dirs(tmp_path)
         assert dirs == [], "Session directory should be removed when all chunks are too short"
-        rows = app._conn.execute("SELECT COUNT(*) FROM recordings").fetchone()
-        assert rows[0] == 0
+
+    def test_encode_failure_creates_failed_marker(self, tmp_path):
+        """A chunk that fails to encode leaves a .failed_NNN marker and keeps the WAV."""
+        button = StubButton()
+        app = make_app(tmp_path, chunk_duration=10.0)
+        app._hal = make_hal(button)
+
+        def failing_encode(wav_path, opus_path, **kwargs):
+            raise RuntimeError("ffmpeg failed")
+
+        with patch("earshot.app.wav_to_opus_mono", side_effect=failing_encode):
+            run_session_then_stop(app, button)
+
+        dirs = session_dirs(tmp_path)
+        assert len(dirs) == 1
+        failed_markers = list(dirs[0].glob(".failed_*"))
+        assert len(failed_markers) == 1, f"Expected one .failed marker, got: {failed_markers}"
+        wav_files = list(dirs[0].glob("recording-*.wav"))
+        assert len(wav_files) == 1, "WAV should be retained on encode failure"
+
+    def test_encode_failure_sets_encode_failure_flag(self, tmp_path):
+        """_encode_failure event is set when a chunk fails to encode."""
+        button = StubButton()
+        app = make_app(tmp_path, chunk_duration=10.0)
+        app._hal = make_hal(button)
+
+        def failing_encode(wav_path, opus_path, **kwargs):
+            raise RuntimeError("ffmpeg failed")
+
+        with patch("earshot.app.wav_to_opus_mono", side_effect=failing_encode):
+            run_session_then_stop(app, button)
+
+        assert app._encode_failure.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -217,16 +222,11 @@ class TestOrphanRecovery:
         self._write_wav(wav_path)
 
         app = EarshotApp(cfg)
-        with app._db_lock:
-            init_schema(app._conn)
-            with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
-                app._recover_orphaned_wavs()
+        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
+            app._recover_orphaned_wavs()
 
         assert not wav_path.exists(), "WAV should be deleted after successful recovery"
         assert (session_dir / "audio-001.opus").exists()
-        rows = app._conn.execute("SELECT audio_filename FROM recordings").fetchall()
-        assert len(rows) == 1
-        assert rows[0][0] == "audio-001.opus"
 
     def test_multiple_orphaned_wavs_all_recovered(self, tmp_path):
         """Two orphaned chunks in one session directory are both recovered."""
@@ -238,15 +238,11 @@ class TestOrphanRecovery:
             self._write_wav(session_dir / f"recording-{n:03d}.wav")
 
         app = EarshotApp(cfg)
-        with app._db_lock:
-            init_schema(app._conn)
-            with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
-                app._recover_orphaned_wavs()
+        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
+            app._recover_orphaned_wavs()
 
         for n in (1, 2):
             assert (session_dir / f"audio-{n:03d}.opus").exists()
-        rows = app._conn.execute("SELECT COUNT(*) FROM recordings").fetchone()
-        assert rows[0] == 2
 
     def test_already_encoded_chunk_is_skipped(self, tmp_path):
         """A chunk with an existing opus file is not re-encoded."""
@@ -258,112 +254,65 @@ class TestOrphanRecovery:
         (session_dir / "recording-001.wav").write_bytes(b"junk")
 
         app = EarshotApp(cfg)
-        with app._db_lock:
-            init_schema(app._conn)
-            encode_calls = []
-            with patch("earshot.app.wav_to_opus_mono", side_effect=lambda *a, **k: encode_calls.append(1)):
-                app._recover_orphaned_wavs()
+        encode_calls = []
+        with patch(
+            "earshot.app.wav_to_opus_mono",
+            side_effect=lambda *a, **k: encode_calls.append(1),
+        ):
+            app._recover_orphaned_wavs()
 
         assert encode_calls == [], "Should not re-encode when opus already exists"
         assert (session_dir / "audio-001.opus").read_bytes() == b"existing"
+
+    def test_failed_marker_prevents_retry(self, tmp_path):
+        """A .failed_NNN marker prevents a WAV from being re-encoded on recovery."""
+        cfg = make_config(tmp_path)
+        cfg.storage.recordings_dir.mkdir(parents=True, exist_ok=True)
+        session_dir = cfg.storage.recordings_dir / "20260101T150000"
+        session_dir.mkdir()
+        (session_dir / "recording-001.wav").write_bytes(b"junk")
+        (session_dir / ".failed_001").touch()
+
+        app = EarshotApp(cfg)
+        encode_calls = []
+        with patch(
+            "earshot.app.wav_to_opus_mono",
+            side_effect=lambda *a, **k: encode_calls.append(1),
+        ):
+            app._recover_orphaned_wavs()
+
+        assert encode_calls == [], "Should not retry a chunk with a .failed marker"
+
+    def test_recovery_failure_writes_failed_marker(self, tmp_path):
+        """A WAV that fails to encode during recovery gets a .failed_NNN marker."""
+        cfg = make_config(tmp_path)
+        cfg.storage.recordings_dir.mkdir(parents=True, exist_ok=True)
+        session_dir = cfg.storage.recordings_dir / "20260101T160000"
+        session_dir.mkdir()
+        self._write_wav(session_dir / "recording-001.wav")
+
+        app = EarshotApp(cfg)
+        with patch(
+            "earshot.app.wav_to_opus_mono",
+            side_effect=RuntimeError("ffmpeg failed"),
+        ):
+            app._recover_orphaned_wavs()
+
+        assert (session_dir / ".failed_001").exists()
+        assert (session_dir / "recording-001.wav").exists(), "WAV should be retained"
 
     def test_legacy_recording_wav_recovered(self, tmp_path):
         """Legacy single-file format (recording.wav → audio.opus) still works."""
         cfg = make_config(tmp_path)
         cfg.storage.recordings_dir.mkdir(parents=True, exist_ok=True)
-        session_dir = cfg.storage.recordings_dir / "20260101T150000"
+        session_dir = cfg.storage.recordings_dir / "20260101T170000"
         session_dir.mkdir()
         wav_path = session_dir / "recording.wav"
         self._write_wav(wav_path)
 
         app = EarshotApp(cfg)
-        with app._db_lock:
-            init_schema(app._conn)
-            with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
-                app._recover_orphaned_wavs()
+        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
+            app._recover_orphaned_wavs()
 
         assert not wav_path.exists()
         assert (session_dir / "audio.opus").exists()
-        rows = app._conn.execute("SELECT audio_filename FROM recordings").fetchall()
-        assert rows[0][0] == "audio.opus"
-
-
-# ---------------------------------------------------------------------------
-# DB schema migration tests
-# ---------------------------------------------------------------------------
-
-class TestDbMigration:
-    def test_v2_to_v3_adds_audio_filename(self, tmp_path):
-        """Migration from v2 adds audio_filename defaulting to 'audio.opus'."""
-        db_path = tmp_path / "earshot.db"
-        conn = sqlite3.connect(str(db_path))
-        conn.executescript("""
-            CREATE TABLE recordings (
-                id TEXT PRIMARY KEY,
-                recorded_at TEXT NOT NULL,
-                directory TEXT NOT NULL UNIQUE,
-                duration_seconds REAL NOT NULL
-            );
-            CREATE TABLE uploads (
-                recording_id TEXT PRIMARY KEY,
-                audio_state TEXT NOT NULL DEFAULT 'pending',
-                retry_count INTEGER NOT NULL DEFAULT 0,
-                last_attempted_at TEXT,
-                FOREIGN KEY (recording_id) REFERENCES recordings(id)
-            );
-            CREATE TABLE events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                recorded_at TEXT NOT NULL,
-                recording_id TEXT,
-                level TEXT NOT NULL,
-                message TEXT NOT NULL
-            );
-            PRAGMA user_version = 2;
-        """)
-        conn.execute(
-            "INSERT INTO recordings VALUES (?, ?, ?, ?)",
-            ("abc-123", "2026-01-01T00:00:00+00:00", "/earshot/recordings/20260101T120000", 60.0),
-        )
-        conn.commit()
-        conn.close()
-
-        conn2 = connect(db_path)
-        init_schema(conn2)
-
-        row = conn2.execute(
-            "SELECT audio_filename FROM recordings WHERE id = 'abc-123'"
-        ).fetchone()
-        assert row is not None
-        assert row[0] == "audio.opus", "Existing row should default to 'audio.opus'"
-        conn2.close()
-
-    def test_v3_allows_multiple_chunks_per_directory(self, tmp_path):
-        """After migration, two rows can share a directory with different filenames."""
-        cfg = make_config(tmp_path)
-        cfg.storage.recordings_dir.mkdir(parents=True, exist_ok=True)
-        app = EarshotApp(cfg)
-        with app._db_lock:
-            init_schema(app._conn)
-
-        session_dir = cfg.storage.recordings_dir / "20260101T120000"
-        from earshot.storage.db import insert_recording_pending
-        with app._db_lock:
-            insert_recording_pending(
-                app._conn,
-                recorded_at="2026-01-01T12:00:00+00:00",
-                directory=session_dir,
-                audio_filename="audio-001.opus",
-                duration_seconds=7200.0,
-            )
-            insert_recording_pending(
-                app._conn,
-                recorded_at="2026-01-01T14:00:00+00:00",
-                directory=session_dir,
-                audio_filename="audio-002.opus",
-                duration_seconds=900.0,
-            )
-
-        rows = app._conn.execute(
-            "SELECT audio_filename FROM recordings ORDER BY audio_filename"
-        ).fetchall()
-        assert [r[0] for r in rows] == ["audio-001.opus", "audio-002.opus"]

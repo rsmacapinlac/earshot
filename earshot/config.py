@@ -34,7 +34,7 @@ class AudioConfig:
 
 @dataclass(frozen=True, slots=True)
 class RecordingConfig:
-    max_duration_seconds: float
+    chunk_duration_seconds: float
     min_duration_seconds: float
     shutdown_hold_seconds: float
 
@@ -47,18 +47,10 @@ class StorageConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class ApiConfig:
-    endpoint: str
-    secret: str | None
-    sync_interval_seconds: float = 30.0
-
-
-@dataclass(frozen=True, slots=True)
 class AppConfig:
     audio: AudioConfig
     recording: RecordingConfig
     storage: StorageConfig
-    api: ApiConfig
     config_path: Path
 
 
@@ -82,7 +74,6 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
     audio = _section(raw, "audio")
     recording = _section(raw, "recording")
     storage = _section(raw, "storage")
-    api = _section(raw, "api")
     data_dir = Path(str(storage["data_dir"])).expanduser().resolve()
     recordings_dir_raw = storage.get("recordings_dir")
     recordings_dir = (
@@ -109,7 +100,7 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
             ),
         ),
         recording=RecordingConfig(
-            max_duration_seconds=float(recording["max_duration_seconds"]),
+            chunk_duration_seconds=float(recording["chunk_duration_seconds"]),
             min_duration_seconds=float(recording["min_duration_seconds"]),
             shutdown_hold_seconds=float(recording["shutdown_hold_seconds"]),
         ),
@@ -117,11 +108,6 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
             data_dir=data_dir,
             disk_threshold_percent=float(storage["disk_threshold_percent"]),
             recordings_dir=recordings_dir,
-        ),
-        api=ApiConfig(
-            endpoint=str(api.get("endpoint") or "").strip(),
-            secret=(str(api["secret"]).strip() if api.get("secret") else None),
-            sync_interval_seconds=float(api.get("sync_interval_seconds", 30.0)),
         ),
         config_path=path,
     )

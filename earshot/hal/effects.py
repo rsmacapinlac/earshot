@@ -22,7 +22,7 @@ def flash_double_green(hal: Hal, *, step_s: float = 0.12) -> None:
 
 
 def flash_fast_red_three_times(hal: Hal, *, step_s: float = 0.2) -> None:
-    """FR-5c / FR-3: fast red blink ×3."""
+    """FR-5a: fast red blink ×3 on encoding failure."""
     if hal.pi_led is None:
         return
     hal.pi_led.set_target_rgb(255, 0, 0)
@@ -31,3 +31,14 @@ def flash_fast_red_three_times(hal: Hal, *, step_s: float = 0.2) -> None:
         time.sleep(step_s)
         hal.pi_led.render_scaled(0.0)
         time.sleep(step_s)
+
+
+def flash_single_blue(hal: Hal, *, step_s: float = 0.3) -> None:
+    """FR-11: single blue flash on USB transfer complete."""
+    if hal.pi_led is None:
+        return
+    hal.pi_led.set_target_rgb(0, 0, 255)
+    hal.pi_led.render_scaled(1.0)
+    time.sleep(step_s)
+    hal.pi_led.render_scaled(0.0)
+    time.sleep(step_s)

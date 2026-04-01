@@ -16,6 +16,3 @@ pyaudio
 # tomllib is in stdlib from Python 3.11+ — tomli is only needed on older versions
 tomli ; python_version < "3.11"
 tomli-w
-
-# HTTP client for API sync
-httpx

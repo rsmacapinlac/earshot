@@ -1,8 +1,7 @@
 # API Sync
 
-## FR-7: API Sync
+**Removed.** API sync is no longer part of the Earshot design.
 
-- When internet connectivity is available, upload `audio.opus` to the configured API endpoint.
-- If offline, queue the recording for upload when connectivity is restored.
-- Each recording is only synced once (sync state tracked locally in SQLite).
-- The API is responsible for transcription and diarization after receiving the audio.
+Recordings are offloaded physically via USB (see [storage.md](storage.md) FR-11 and FR-12). The device has no network dependency for application functionality — WiFi is used only for SSH access during setup and configuration.
+
+See ADR-0010 for the decision record.

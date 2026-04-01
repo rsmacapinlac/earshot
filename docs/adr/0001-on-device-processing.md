@@ -1,6 +1,6 @@
 # 0001 — Audio Processing
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0010
 
 ## Context
 

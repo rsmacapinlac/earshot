@@ -7,9 +7,7 @@
   - Install the seeed-voicecard driver
   - Install system-level audio and ffmpeg dependencies
   - Set up the Python environment and install all dependencies
-  - Prompt for a Hugging Face access token and download on-device models (STT, diarization)
   - Install and enable a systemd service so Earshot starts on boot after a final reboot
-  - Prompt for API endpoint configuration (can be skipped)
 - A reboot at the **end** of install is acceptable (ReSpeaker may not appear in ALSA until after reboot; the service is enabled but not started until the first boot completes).
 
 ## FR-10: Phone Hotspot Setup (Optional)

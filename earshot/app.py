@@ -1,8 +1,10 @@
-"""Application state machine: boot, idle, record, encode, sync, shutdown."""
+"""Application state machine: boot, idle, record, encode, USB offload, shutdown."""
 
 from __future__ import annotations
 
+import errno
 import logging
+import re as _re
 import shutil
 import subprocess
 import threading
@@ -12,20 +14,15 @@ from pathlib import Path
 
 from earshot.config import AppConfig
 from earshot.hal import Hal, LedPattern, create_hal
-from earshot.hal.effects import flash_double_green, flash_fast_red_three_times
+from earshot.hal.effects import flash_double_green, flash_fast_red_three_times, flash_single_blue
 from earshot.recording import StereoWavWriter, wav_to_opus_mono
 from earshot.storage import (
-    connect,
-    database_path,
-    init_schema,
-    insert_recording_pending,
     is_over_disk_threshold,
-    log_event,
     new_recording_stamp,
     recording_directory,
     recordings_root,
 )
-from earshot.sync import check_connectivity, sync_pending_uploads
+from earshot.usb_offload import find_usb_mount, move_recordings_to_stick
 
 _log = logging.getLogger(__name__)
 
@@ -35,62 +32,48 @@ _CHUNK_FRAMES = 1024
 class EarshotApp:
     def __init__(self, cfg: AppConfig) -> None:
         self._cfg = cfg
-        self._conn = connect(database_path(cfg))
-        self._db_lock = threading.Lock()
         self._hal: Hal | None = None
-        self._sync_stop = threading.Event()
-        self._idle_event = threading.Event()
+        self._usb_stick_pending = threading.Event()
+        self._usb_error = threading.Event()
+        self._usb_stop = threading.Event()
+        self._encode_failure = threading.Event()
 
     def run(self) -> None:
         cfg = self._cfg
-        self._ensure_directories()
-        with self._db_lock:
-            init_schema(self._conn)
-            log_event(self._conn, "Earshot starting", level="info")
+        recordings_root(cfg).mkdir(parents=True, exist_ok=True)
 
         self._hal = create_hal(cfg)
         hal = self._hal
-        assert hal is not None
 
         hal.led.set_colour_and_pattern(255, 255, 255, LedPattern.SLOW_PULSE)
 
         # Recover any WAV files left behind by a previous crash (NFR-2).
-        # Runs while the boot LED is already showing so the user gets visual feedback.
-        with self._db_lock:
-            self._recover_orphaned_wavs()
+        self._recover_orphaned_wavs()
 
         disk_blocked = self._disk_blocked()
         if disk_blocked:
             hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
-            log_event(self._conn, "Disk threshold reached at startup", level="warning")
+            _log.warning("Disk threshold reached at startup")
 
         self._set_idle_led(disk_blocked)
 
-        self._idle_event.set()
-
-        sync_thread = threading.Thread(
-            target=self._sync_loop,
-            name="earshot-sync",
+        usb_thread = threading.Thread(
+            target=self._usb_monitor_loop,
+            name="earshot-usb",
             daemon=True,
         )
-        sync_thread.start()
+        usb_thread.start()
 
         try:
             self._main_loop()
         finally:
-            self._sync_stop.set()
-            sync_thread.join(timeout=5.0)
+            self._usb_stop.set()
+            usb_thread.join(timeout=5.0)
             hal.close()
-            with self._db_lock:
-                self._conn.close()
-
-    def _ensure_directories(self) -> None:
-        recordings_root(self._cfg).mkdir(parents=True, exist_ok=True)
-        self._cfg.storage.data_dir.mkdir(parents=True, exist_ok=True)
 
     def _disk_blocked(self) -> bool:
         return is_over_disk_threshold(
-            self._cfg.storage.data_dir,
+            recordings_root(self._cfg),
             self._cfg.storage.disk_threshold_percent,
         )
 
@@ -110,8 +93,13 @@ class EarshotApp:
                 hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
                 time.sleep(0.5)
 
+            # USB stick inserted while idle → offload immediately.
+            if self._usb_stick_pending.is_set() and not self._usb_error.is_set():
+                self._usb_offload()
+                continue
+
             self._set_idle_led(False)
-            _log.info("Ready: solid green = idle; orange pulse = disk full; press button to record.")
+            _log.info("Ready: green = idle, orange = disk full, press button to record.")
 
             action = self._wait_idle_button()
             if action == "shutdown":
@@ -125,6 +113,10 @@ class EarshotApp:
 
             self._recording_session()
 
+            # USB stick was inserted during recording → offload now that session is done.
+            if self._usb_stick_pending.is_set() and not self._usb_error.is_set():
+                self._usb_offload()
+
     def _wait_idle_button(self) -> str:
         """Wait for a debounced short click (record) or long hold (shutdown)."""
         hal = self._hal
@@ -135,7 +127,7 @@ class EarshotApp:
         heartbeat_deadline = time.monotonic() + 45.0
 
         while True:
-            # Wait for a stable *released* state (avoids interpreting bounce as a release).
+            # Wait for a stable released state.
             while True:
                 if not hal.button.pressed():
                     time.sleep(poll_s)
@@ -152,7 +144,7 @@ class EarshotApp:
                         heartbeat_deadline = now + 120.0
                 time.sleep(poll_s)
 
-            # Wait for a stable *press*.
+            # Wait for a stable press.
             while not hal.button.pressed():
                 time.sleep(poll_s)
             time.sleep(poll_s)
@@ -183,17 +175,13 @@ class EarshotApp:
         hal.led.set_colour_and_pattern(255, 0, 0, LedPattern.SLOW_PULSE)
 
     def _recover_orphaned_wavs(self) -> None:
-        """Re-encode any WAV files left behind by a previous crash (NFR-2).
+        """Re-encode WAV files left behind by a previous crash (NFR-2).
 
-        Called at startup with the db_lock already held.  Scans each session
-        directory for ``recording-NNN.wav`` files (numbered chunk format) or the
-        legacy ``recording.wav`` that have no corresponding opus file.  Python's
-        wave module leaves zeroed chunk-size fields in the header when the process
-        crashes before ``close()`` is called, so encoding uses
-        ``ignore_header_length=True`` to read PCM until EOF.
+        Scans each session directory for ``recording-NNN.wav`` files that have
+        no corresponding opus file and no ``.failed_NNN`` marker.  Uses
+        ``ignore_header_length=True`` to handle WAVs with zeroed chunk-size
+        fields written by a crash before ``close()`` was called.
         """
-        import re as _re
-
         cfg = self._cfg
         root = recordings_root(cfg)
         if not root.exists():
@@ -205,25 +193,27 @@ class EarshotApp:
             if not session_dir.is_dir():
                 continue
 
-            # Collect orphaned WAVs: numbered chunks + legacy single-file format.
             numbered = sorted(session_dir.glob("recording-*.wav"))
             legacy = session_dir / "recording.wav"
-            candidates: list[tuple[Path, str]] = []  # (wav_path, opus_name)
+            candidates: list[tuple[Path, str, str]] = []
             for wav in numbered:
                 m = _re.fullmatch(r"recording-(\d+)\.wav", wav.name)
                 if m:
-                    candidates.append((wav, f"audio-{m.group(1).zfill(3)}.opus"))
+                    n = m.group(1).zfill(3)
+                    candidates.append((wav, f"audio-{n}.opus", f".failed_{n}"))
             if legacy.exists():
-                candidates.append((legacy, "audio.opus"))
+                candidates.append((legacy, "audio.opus", ".failed"))
 
-            for wav_path, opus_name in candidates:
+            for wav_path, opus_name, failed_name in candidates:
                 opus_path = session_dir / opus_name
-                if opus_path.exists():
-                    continue  # already encoded — skip
+                failed_path = session_dir / failed_name
+                if opus_path.exists() or failed_path.exists():
+                    continue  # already encoded or previously failed — skip
 
-                _log.warning("Recovering orphaned WAV: %s/%s", session_dir.name, wav_path.name)
+                _log.warning(
+                    "Recovering orphaned WAV: %s/%s", session_dir.name, wav_path.name
+                )
 
-                # Measure size before encoding (we need it for duration estimation).
                 wav_bytes = wav_path.stat().st_size
                 duration_s = max(0, wav_bytes - 44) / (bytes_per_frame * cfg.audio.sample_rate)
 
@@ -236,12 +226,13 @@ class EarshotApp:
                         ignore_header_length=True,
                     )
                 except Exception as exc:
-                    _log.error("Failed to recover %s/%s: %s", session_dir.name, wav_path.name, exc)
-                    log_event(
-                        self._conn,
-                        f"WAV recovery failed for {session_dir.name}/{wav_path.name}: {exc}",
-                        level="error",
+                    _log.error(
+                        "Recovery failed for %s/%s: %s",
+                        session_dir.name,
+                        wav_path.name,
+                        exc,
                     )
+                    failed_path.touch()
                     continue
 
                 wav_path.unlink(missing_ok=True)
@@ -249,55 +240,32 @@ class EarshotApp:
                 if duration_s < cfg.recording.min_duration_seconds:
                     _log.warning(
                         "Recovered chunk too short (%.1fs), discarding %s",
-                        duration_s, opus_name,
+                        duration_s,
+                        opus_name,
                     )
                     opus_path.unlink(missing_ok=True)
-                    continue
-
-                try:
-                    recorded_at = (
-                        datetime.strptime(session_dir.name, "%Y%m%dT%H%M%S")
-                        .astimezone()
-                        .replace(microsecond=0)
-                        .isoformat()
+                else:
+                    _log.info(
+                        "Recovered %s/%s (%.0fs)", session_dir.name, opus_name, duration_s
                     )
-                except ValueError:
-                    recorded_at = datetime.now().astimezone().replace(microsecond=0).isoformat()
-
-                rec_id = insert_recording_pending(
-                    self._conn,
-                    recorded_at=recorded_at,
-                    directory=session_dir,
-                    audio_filename=opus_name,
-                    duration_seconds=duration_s,
-                )
-                log_event(
-                    self._conn,
-                    f"Recovered {session_dir.name}/{opus_name} ({duration_s:.0f}s)",
-                    level="info",
-                    recording_id=rec_id,
-                )
-                _log.info("Recovered %s/%s (%.0fs)", session_dir.name, opus_name, duration_s)
 
     def _recording_session(self) -> None:
-        """Capture audio until the button is pressed, rolling over to a new file each
-        time ``max_duration_seconds`` is reached.
+        """Capture audio until the button is pressed, rolling over every
+        ``chunk_duration_seconds``.
 
-        All chunks share a single session directory named after the session start
+        All chunks share one session directory named after the session start
         time.  Chunk files are numbered sequentially: ``recording-001.wav`` →
-        ``audio-001.opus``, ``recording-002.wav`` → ``audio-002.opus``, etc.
-        Each completed chunk is encoded in a background thread so that audio
-        capture continues uninterrupted across rollovers.  The LED stays red
-        throughout the session and turns blue only when waiting for the final
-        encoding pass after the button is pressed.
+        ``audio-001.opus``, etc.  Each completed chunk is encoded in a
+        background thread so capture continues uninterrupted across rollovers.
+        The LED stays red throughout and turns blue only while waiting for the
+        final encoding pass after the button is pressed.
         """
         hal = self._hal
         assert hal is not None
         cfg = self._cfg
-        self._idle_event.clear()
+        self._encode_failure.clear()
         self._snap_recording_led(hal)
 
-        # One directory for the whole session, named after the session start time.
         session_stamp = new_recording_stamp()
         session_dir = recording_directory(cfg, session_stamp)
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -323,7 +291,6 @@ class EarshotApp:
                     wav_name = f"recording-{chunk_num:03d}.wav"
                     opus_name = f"audio-{chunk_num:03d}.opus"
                     wav_path = session_dir / wav_name
-                    recorded_at = datetime.now().astimezone().replace(microsecond=0).isoformat()
 
                     writer: StereoWavWriter | None = None
                     try:
@@ -356,7 +323,7 @@ class EarshotApp:
 
                     t = threading.Thread(
                         target=self._encode_chunk,
-                        args=(session_dir, wav_path, opus_name, duration_s, recorded_at),
+                        args=(session_dir, wav_path, opus_name),
                         name=f"earshot-encode-{session_stamp}-{chunk_num:03d}",
                         daemon=True,
                     )
@@ -385,32 +352,41 @@ class EarshotApp:
                 for t in encode_threads:
                     t.join()
 
-            # Clean up session directory if encoding left nothing behind.
+            if self._encode_failure.is_set():
+                flash_fast_red_three_times(hal)
+
+            # Remove session dir if encoding left nothing behind.
             try:
-                session_dir.rmdir()  # Only succeeds if the directory is empty.
+                session_dir.rmdir()
             except OSError:
-                pass  # Directory has files — expected.
+                pass
 
             self._set_idle_led(self._disk_blocked())
-        finally:
-            self._idle_event.set()
+
+        except Exception:
+            _log.exception("unexpected error in recording session")
+            self._set_idle_led(self._disk_blocked())
 
     def _encode_chunk(
         self,
         session_dir: Path,
         wav_path: Path,
         opus_name: str,
-        duration_s: float,
-        recorded_at: str,
     ) -> None:
-        """Encode one WAV chunk to Opus and register it in the database.
+        """Encode one WAV chunk to Opus in a background thread.
 
-        Runs in a background thread so audio capture can continue into the next
-        chunk without interruption.  Encoding errors are logged but do not raise
-        so the thread exits cleanly.
+        On success: WAV is deleted.
+        On failure: ``.failed_NNN`` marker is written, WAV is retained,
+        and the session-level failure flag is set so the LED can flash after
+        all chunks are joined.
         """
         cfg = self._cfg
         opus_path = session_dir / opus_name
+        # audio-001.opus → .failed_001; legacy audio.opus → .failed
+        chunk_num = opus_name[len("audio-"):-len(".opus")]
+        failed_name = f".failed_{chunk_num}" if chunk_num.isdigit() else ".failed"
+        failed_path = session_dir / failed_name
+
         try:
             wav_to_opus_mono(
                 wav_path,
@@ -419,44 +395,27 @@ class EarshotApp:
                 bitrate_kbps=cfg.audio.opus_bitrate,
             )
         except Exception as exc:
-            _log.exception("Opus encode failed for %s/%s", session_dir.name, opus_name)
-            with self._db_lock:
-                log_event(
-                    self._conn,
-                    f"ffmpeg encode failed for {session_dir.name}/{opus_name}: {exc}",
-                    level="error",
-                )
+            _log.error(
+                "Opus encode failed for %s/%s: %s", session_dir.name, opus_name, exc
+            )
+            failed_path.touch()
+            self._encode_failure.set()
             return
 
         wav_path.unlink(missing_ok=True)
-
-        with self._db_lock:
-            rec_id = insert_recording_pending(
-                self._conn,
-                recorded_at=recorded_at,
-                directory=session_dir,
-                audio_filename=opus_name,
-                duration_seconds=duration_s,
-            )
-            log_event(
-                self._conn,
-                f"Recording saved {session_dir.name}/{opus_name}",
-                level="info",
-                recording_id=rec_id,
-            )
+        _log.info("Encoded %s/%s", session_dir.name, opus_name)
 
     def _record_until_stop(
         self, audio, writer: StereoWavWriter, cfg: AppConfig
     ) -> tuple[int, str]:
-        """Record audio frames until the button is pressed or max duration is reached.
+        """Record frames until the button is pressed or the chunk duration is reached.
 
-        Returns ``(frames_recorded, reason)`` where *reason* is ``"button"`` or
-        ``"max_duration"``.  The caller uses the reason to decide whether to roll
-        over to a new file or end the session.
+        Returns ``(frames_recorded, reason)`` where *reason* is ``"button"``
+        (end session) or ``"max_duration"`` (roll over to next chunk).
         """
         hal = self._hal
         assert hal is not None
-        max_dur = cfg.recording.max_duration_seconds
+        chunk_dur = cfg.recording.chunk_duration_seconds
         frames_recorded = 0
         prev_pressed = False
         t0 = time.monotonic()
@@ -465,12 +424,71 @@ class EarshotApp:
             writer.write_frames(pcm)
             frames_recorded += _CHUNK_FRAMES
             elapsed = time.monotonic() - t0
-            if elapsed >= max_dur:
+            if elapsed >= chunk_dur:
                 return frames_recorded, "max_duration"
             cur = hal.button.pressed()
             if cur and not prev_pressed:
                 return frames_recorded, "button"
             prev_pressed = cur
+
+    # ── USB stick offload (FR-11) ────────────────────────────────────────────
+
+    def _usb_monitor_loop(self) -> None:
+        """Poll every 2 s for removable FAT32 stick insertion/removal."""
+        was_present = False
+        while not self._usb_stop.wait(2.0):
+            mount = find_usb_mount()
+            now_present = mount is not None
+            if now_present and not was_present:
+                _log.info("USB stick detected at %s", mount)
+                self._usb_error.clear()
+                self._usb_stick_pending.set()
+            elif not now_present and was_present:
+                _log.info("USB stick removed — error state cleared")
+                self._usb_stick_pending.clear()
+                self._usb_error.clear()
+            was_present = now_present
+
+    def _usb_offload(self) -> None:
+        """Move all session directories to the USB stick (FR-11).
+
+        LED is blue-pulsing during transfer.  On success: single blue flash,
+        then return to idle green.  On stick-full or other error: orange
+        pulse until the stick is removed.
+        """
+        hal = self._hal
+        assert hal is not None
+
+        hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+
+        mount = find_usb_mount()
+        if mount is None:
+            _log.warning("USB stick no longer available — skipping offload")
+            self._usb_stick_pending.clear()
+            self._set_idle_led(self._disk_blocked())
+            return
+
+        try:
+            move_recordings_to_stick(recordings_root(self._cfg), mount)
+        except OSError as exc:
+            if exc.errno == errno.ENOSPC:
+                _log.error("USB stick full — some recordings remain on device")
+            else:
+                _log.error("USB offload error: %s", exc)
+            self._usb_error.set()
+            hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
+            return
+
+        try:
+            subprocess.run(["sync"], check=False, timeout=10.0)
+        except Exception:
+            pass
+
+        _log.info("USB offload complete")
+        flash_single_blue(hal)
+        self._set_idle_led(self._disk_blocked())
+
+    # ── Shutdown ─────────────────────────────────────────────────────────────
 
     def _shutdown_sequence(self) -> None:
         hal = self._hal
@@ -484,27 +502,3 @@ class EarshotApp:
             ["/usr/bin/sudo", "-n", "/sbin/poweroff"],
             check=False,
         )
-
-    def _sync_loop(self) -> None:
-        interval = self._cfg.api.sync_interval_seconds
-        was_connected = False
-        while not self._sync_stop.wait(interval):
-            if not self._idle_event.is_set():
-                _log.debug("Sync skipped: device not idle")
-                continue
-            connected = check_connectivity()
-            if connected and not was_connected:
-                _log.info("Network connectivity restored — syncing")
-            was_connected = connected
-            if not connected:
-                _log.debug("Sync skipped: no connectivity")
-                continue
-            try:
-                with self._db_lock:
-                    sync_pending_uploads(
-                        self._conn,
-                        self._cfg.api.endpoint,
-                        self._cfg.api.secret,
-                    )
-            except Exception:
-                _log.exception("sync batch failed")

@@ -1,6 +1,6 @@
 # 0009 — SQLite as Central State Store
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0011
 
 ## Context
 The application needs to track state across several areas:

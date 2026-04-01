@@ -1,6 +1,6 @@
 # 0005 — Offline-First with Opportunistic API Sync
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0010
 
 ## Context
 

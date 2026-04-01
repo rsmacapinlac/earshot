@@ -17,7 +17,7 @@ Two implementations exist for each:
 - **Stub** — in-memory/no-op implementation for local development and testing
 
 ## Consequences
-- The full application logic and processing pipeline can be developed and tested locally without a Pi.
-- The processing pipeline (diarization, transcription) is inherently hardware-agnostic and benefits most from this.
+- The full application logic and encoding pipeline can be developed and tested locally without a Pi.
+- The encoding pipeline is inherently hardware-agnostic and benefits most from this.
 - Adds a small amount of structural overhead, justified by the development velocity gain.
 - Integration testing against real hardware still requires a Pi.

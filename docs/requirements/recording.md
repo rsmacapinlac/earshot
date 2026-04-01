@@ -7,9 +7,11 @@
 | Booting | White | Slow pulsating |
 | Ready / idle | Green | Solid |
 | Recording | Red | Slow pulsating |
-| Processing | Blue | Slow pulsating |
-| Sync complete | Blue | Single flash |
-| Processing failure | Red | Fast blink (×3) then returns to green |
+| Encoding | Blue | Slow pulsating |
+| Encoding failure | Red | Fast blink (×3) then returns to green |
+| USB transfer | Blue | Slow pulsating |
+| USB transfer complete | Blue | Single flash |
+| USB transfer error | Orange | Slow pulsating |
 | Disk threshold reached | Orange | Slow pulsating |
 | Shutting down | White | Slow pulsating → fade to off |
 
@@ -31,8 +33,7 @@
 - The application waits for a button press.
 
 ## FR-2: Start Recording
-- Maximum recording duration is 1 hour (configurable). When the limit is reached, recording stops automatically as if the button had been pressed.
-- Pressing the button while idle begins audio recording, provided the disk threshold has not been reached.
+- Pressing the button while idle begins a recording session, provided the disk threshold has not been reached.
 - If the disk threshold has been reached, the button is ignored and the LED remains pulsating **orange**.
 - The LED pulsates **red** (slow) during recording.
 - A minimum recording duration of 3 seconds is enforced (configurable). If the button is pressed before the minimum is reached, the recording is discarded and the LED double-flashes **green** to signal the device is ready.
@@ -46,13 +47,20 @@
 
 > **Note:** 16kHz is the ReSpeaker HAT's native sample rate. The stereo capture is downmixed to mono before encoding.
 
+### FR-2a: Chunked Recording
+- Within a session, audio is recorded in configurable chunks (default: 15 minutes).
+- When the chunk duration is reached, the current chunk is closed and a new chunk file begins automatically without interrupting the session.
+- Completed chunks are encoded to Opus in the background while the next chunk records (pipeline encoding).
+- Chunk duration is configurable via `recording.chunk_duration_seconds` in `config.toml`.
+- There is no maximum session duration — recording continues until the button is pressed or the disk threshold is reached.
+
 ## FR-3: Stop Recording
-- Pressing the button again stops the recording (subject to minimum duration).
-- The LED pulsates **blue** (slow) while the WAV is encoded to MP3.
+- Pressing the button again stops the session (subject to minimum duration).
+- The current chunk is closed and encoded to Opus. Any previous chunks are already encoded via the pipeline.
+- The LED pulsates **blue** (slow) while the final chunk is encoding.
 - The LED returns to solid **green** once encoding is complete and the device is ready for a new recording.
-- If encoding fails, the LED fast-blinks **red** three times before returning to solid **green**.
+- If a chunk fails to encode, the LED fast-blinks **red** three times before returning to solid **green**; the raw WAV is retained alongside any successfully encoded chunks.
 - Button presses are ignored during encoding — new recordings are blocked until the device returns to idle.
-- Once encoding completes, the recording is queued for API upload in the background.
 
 ## FR-4: Safe Shutdown
 - Holding the button for 3 seconds while idle initiates a safe shutdown (duration configurable).

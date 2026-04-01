@@ -47,18 +47,6 @@ echo ""
 log "Installing for user: $INSTALL_USER (home: $INSTALL_HOME)"
 echo ""
 
-echo "── API Sync (optional) ──────────────────────────────────────────────"
-echo "Earshot uploads audio to a remote API for transcription."
-echo "Leave blank to skip — recordings are stored locally until configured."
-echo ""
-read -rp "API endpoint URL (blank to skip): " API_ENDPOINT
-
-API_SECRET=""
-if [ -n "$API_ENDPOINT" ]; then
-    read -rsp "API secret/key (blank if none): " API_SECRET
-    echo
-fi
-
 # ── System packages ─────────────────────────────────────────────────────────
 
 log "Updating system packages..."
@@ -153,8 +141,6 @@ log "Installing Earshot package (editable) with Pi extras..."
 
 log "Writing configuration file..."
 export CONFIG_PATH="$REPO_DIR/config.toml"
-export API_ENDPOINT="${API_ENDPOINT:-}"
-export API_SECRET="${API_SECRET:-}"
 "$VENV_DIR/bin/python" - <<'PYCFG'
 import os
 from pathlib import Path
@@ -162,8 +148,6 @@ from pathlib import Path
 import tomli_w
 
 config_path = Path(os.environ["CONFIG_PATH"])
-api_endpoint = os.environ.get("API_ENDPOINT", "")
-secret = os.environ.get("API_SECRET", "").strip()
 
 cfg = {
     "audio": {
@@ -176,7 +160,7 @@ cfg = {
         "alsa_pcm": "plughw:CARD=seeed2micvoicec,DEV=0",
     },
     "recording": {
-        "max_duration_seconds": 7200,
+        "chunk_duration_seconds": 900,  # 15 minutes
         "min_duration_seconds": 3,
         "shutdown_hold_seconds": 3,
     },
@@ -184,12 +168,7 @@ cfg = {
         "data_dir": "~/earshot",
         "disk_threshold_percent": 90,
     },
-    "api": {
-        "endpoint": api_endpoint,
-    },
 }
-if secret:
-    cfg["api"]["secret"] = secret
 
 header = (
     "# Earshot Configuration\n"
@@ -198,6 +177,8 @@ header = (
     "#\n"
     "# audio.alsa_pcm — ALSA capture device for arecord (preferred on Pi).\n"
     "#   Run: arecord -l   Use plughw:CARD,DEVICE (rate conversion).\n"
+    "#\n"
+    "# recording.chunk_duration_seconds — length of each audio chunk (default: 900 = 15 min).\n"
     "#\n"
     "# storage.recordings_dir — override recordings destination (default: data_dir/recordings).\n"
     "#   Example: recordings_dir = \"/mnt/usb/earshot-recordings\"\n\n"
@@ -237,7 +218,7 @@ echo "║  After boot:  sudo systemctl status earshot                 ║"
 echo "║               journalctl -u earshot -f                       ║"
 echo "║               arecord -l   # confirm ReSpeaker              ║"
 echo "║                                                              ║"
-echo "║  Optional: add a phone hotspot for portable sync:           ║"
+echo "║  Optional: add a phone hotspot for SSH access on the go:   ║"
 echo "║    sudo nmcli connection add type wifi con-name hotspot \\   ║"
 echo "║      ssid \"YourHotspot\" wifi-sec.key-mgmt wpa-psk \\        ║"
 echo "║      wifi-sec.psk \"password\" connection.autoconnect yes     ║"

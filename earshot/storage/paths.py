@@ -1,4 +1,4 @@
-"""Filesystem layout under `storage.data_dir`."""
+"""Filesystem layout under `storage.recordings_dir`."""
 
 from __future__ import annotations
 
@@ -6,10 +6,6 @@ from datetime import datetime
 from pathlib import Path
 
 from earshot.config import AppConfig
-
-
-def database_path(cfg: AppConfig) -> Path:
-    return cfg.storage.data_dir / "earshot.db"
 
 
 def recordings_root(cfg: AppConfig) -> Path:

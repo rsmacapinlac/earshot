@@ -5,12 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "earshot"
 version = "0.1.0"
-description = "Conversation recorder for Raspberry Pi — captures audio and uploads to API for transcription"
+description = "Local audio recorder for Raspberry Pi — captures and encodes conversations for USB offload"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "tomli-w",
-    "httpx",
 ]
 
 [project.optional-dependencies]
