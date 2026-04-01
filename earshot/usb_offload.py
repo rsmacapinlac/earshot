@@ -5,14 +5,13 @@ from __future__ import annotations
 import errno
 import json
 import logging
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-# Mount point used when the stick is not already auto-mounted.
+# Mount point written by the udev rule installed by the earshot installer.
 _EARSHOT_MOUNT = Path("/mnt/earshot-usb")
 
 
@@ -20,8 +19,7 @@ def find_usb_device() -> tuple[str, str | None] | None:
     """Return ``(device_path, mountpoint_or_None)`` for the first removable vfat
     partition, or ``None`` if no removable vfat device is present.
 
-    Used by the monitor loop to detect insertion/removal without triggering
-    a mount attempt.
+    Used by the monitor loop to detect insertion/removal without side-effects.
     """
     try:
         result = subprocess.run(
@@ -42,61 +40,40 @@ def find_usb_device() -> tuple[str, str | None] | None:
 
 
 def find_usb_mount() -> Path | None:
-    """Return the mount point of the removable vfat stick, mounting it if needed.
+    """Return the mount point of the removable vfat stick, or ``None``.
 
-    If the stick is already mounted (e.g. auto-mounted by udisks2) that path
-    is returned directly.  Otherwise the stick is mounted at ``_EARSHOT_MOUNT``
-    using ``sudo -n mount``.  Returns ``None`` if no stick is present or
-    mounting fails.
+    The stick is auto-mounted by the udev rule installed by the earshot
+    installer — this function only reads the existing mountpoint, it does
+    not attempt to mount anything.
     """
     info = find_usb_device()
     if info is None:
         return None
-    device, mountpoint = info
-    if mountpoint:
-        return Path(mountpoint)
-    return _mount_device(device)
+    _, mountpoint = info
+    return Path(mountpoint) if mountpoint else None
 
 
-def unmount_usb_stick() -> None:
-    """Unmount the earshot USB mount point if it is mounted."""
-    try:
-        subprocess.run(
-            ["sudo", "-n", "/usr/bin/umount", str(_EARSHOT_MOUNT)],
-            check=True,
-            timeout=10.0,
-            capture_output=True,
-        )
-        _log.info("Unmounted %s", _EARSHOT_MOUNT)
-    except Exception as exc:
-        _log.warning("umount failed (may already be unmounted): %s", exc)
+def eject_usb_device(device: str) -> None:
+    """Sync buffers then power-off *device* via udisksctl.
 
-
-def _mount_device(device: str) -> Path | None:
-    """Mount *device* at ``_EARSHOT_MOUNT`` using ``sudo -n mount``.
-
-    ``_EARSHOT_MOUNT`` is pre-created by the installer so no runtime mkdir
-    is needed.  Only ``mount`` and ``umount`` require elevated privilege,
-    restricted via ``/etc/sudoers.d/earshot``.
+    Powers down the USB port so the stick LED goes dark, giving a clear
+    visual signal that it is safe to remove.  Falls back gracefully if
+    udisksctl is unavailable or the stick is already gone.
     """
     try:
-        uid = os.getuid()
-        gid = os.getgid()
+        subprocess.run(["sync"], check=False, timeout=10.0)
+    except Exception:
+        pass
+    try:
         subprocess.run(
-            [
-                "sudo", "-n", "/usr/bin/mount",
-                "-o", f"uid={uid},gid={gid}",
-                device, str(_EARSHOT_MOUNT),
-            ],
+            ["udisksctl", "power-off", "-b", device],
             check=True,
-            timeout=10.0,
+            timeout=15.0,
             capture_output=True,
         )
-        _log.info("Mounted %s at %s", device, _EARSHOT_MOUNT)
-        return _EARSHOT_MOUNT
+        _log.info("Ejected %s", device)
     except Exception as exc:
-        _log.error("Failed to mount %s: %s", device, exc)
-        return None
+        _log.warning("Eject failed (stick may already be removed): %s", exc)
 
 
 def move_recordings_to_stick(recordings_root: Path, mount: Path) -> None:

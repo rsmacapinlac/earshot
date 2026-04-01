@@ -191,26 +191,30 @@ with open(config_path, "wb") as f:
 PYCFG
 chmod 600 "$REPO_DIR/config.toml"
 
-# ── USB offload mount point and sudoers rule ─────────────────────────────────
-# Pre-create /mnt/earshot-usb so the service never needs sudo mkdir at runtime.
-# Restrict sudo to only the two specific commands needed for USB offload —
-# far narrower than a blanket NOPASSWD: ALL.
+# ── USB offload: udev auto-mount rule ────────────────────────────────────────
+# A udev rule mounts FAT32 USB sticks to /mnt/earshot-usb automatically when
+# inserted.  The earshot service never needs sudo or elevated privileges for
+# USB offload — it just detects the mountpoint and copies files.
+# udisksctl power-off (D-Bus, no setuid) ejects the stick when done.
 
-log "Creating USB mount point and restricted sudoers rule..."
+log "Installing USB auto-mount rule and creating mount point..."
+INSTALL_UID="$(id -u)"
+INSTALL_GID="$(id -g)"
 sudo mkdir -p /mnt/earshot-usb
-SUDOERS_FILE="/etc/sudoers.d/earshot"
-cat <<SUDOERS | sudo tee "$SUDOERS_FILE" >/dev/null
-# Earshot: allow mount/umount of USB stick for recording offload (FR-11).
-$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/mount -o * /dev/sd* /mnt/earshot-usb, /usr/bin/umount /mnt/earshot-usb
-SUDOERS
-sudo chmod 440 "$SUDOERS_FILE"
-info "Sudoers rule written to $SUDOERS_FILE"
+UDEV_RULE="/etc/udev/rules.d/99-earshot-usb.rules"
+cat <<UDEV | sudo tee "$UDEV_RULE" >/dev/null
+# Earshot: auto-mount FAT32 USB stick for recording offload (FR-11).
+# On Pi 4B, USB drives enumerate as sd*; the system SD card is mmcblk0.
+SUBSYSTEM=="block", ACTION=="add", KERNEL=="sd?[0-9]", ENV{ID_FS_TYPE}=="vfat", RUN{program}+="/usr/bin/mount -o uid=$INSTALL_UID,gid=$INSTALL_GID /dev/%k /mnt/earshot-usb"
+SUBSYSTEM=="block", ACTION=="remove", KERNEL=="sd?[0-9]", RUN{program}+="/usr/bin/umount -l /mnt/earshot-usb"
+UDEV
+sudo udevadm control --reload-rules
+info "udev rule written to $UDEV_RULE"
 
 # ── systemd ──────────────────────────────────────────────────────────────────
 # Enable only — ALSA/HAT needs a reboot before the first start works cleanly.
 
 log "Installing Earshot systemd service..."
-INSTALL_UID="$(id -u)"
 sudo sed \
     -e "s|__INSTALL_USER__|$INSTALL_USER|g" \
     -e "s|__INSTALL_HOME__|$INSTALL_HOME|g" \

@@ -22,7 +22,7 @@ from earshot.storage import (
     recording_directory,
     recordings_root,
 )
-from earshot.usb_offload import find_usb_device, find_usb_mount, move_recordings_to_stick, unmount_usb_stick
+from earshot.usb_offload import eject_usb_device, find_usb_device, find_usb_mount, move_recordings_to_stick
 
 _log = logging.getLogger(__name__)
 
@@ -470,13 +470,15 @@ class EarshotApp:
 
         hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
 
-        mount = find_usb_mount()
+        info = find_usb_device()
+        mount = Path(info[1]) if (info and info[1]) else None
         if mount is None:
-            _log.warning("USB stick no longer available — skipping offload")
+            _log.warning("USB stick not mounted — skipping offload")
             self._usb_stick_pending.clear()
             self._set_idle_led(self._disk_blocked())
             return
 
+        device = info[0]  # type: ignore[index]
         try:
             move_recordings_to_stick(recordings_root(self._cfg), mount)
         except OSError as exc:
@@ -488,14 +490,10 @@ class EarshotApp:
             hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
             return
 
-        try:
-            subprocess.run(["sync"], check=False, timeout=10.0)
-        except Exception:
-            pass
-
-        unmount_usb_stick()
+        eject_usb_device(device)
         _log.info("USB offload complete")
         flash_single_blue(hal)
+        self._usb_stick_pending.clear()
         self._set_idle_led(self._disk_blocked())
 
     # ── Shutdown ─────────────────────────────────────────────────────────────

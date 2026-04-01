@@ -59,11 +59,6 @@ def lsblk_output(devices: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 class TestFindUsbMount:
-    def _run_lsblk(self, stdout: str):
-        import subprocess
-        mock = type("R", (), {"stdout": stdout, "returncode": 0})()
-        return mock
-
     def test_returns_none_when_no_removable_device(self):
         output = lsblk_output([
             {"name": "sda", "rm": False, "fstype": None, "mountpoint": None,
@@ -77,7 +72,8 @@ class TestFindUsbMount:
             result = find_usb_mount()
         assert result is None
 
-    def test_mounts_and_returns_path_when_removable_not_auto_mounted(self):
+    def test_returns_none_when_removable_not_yet_mounted(self):
+        """Stick present but udev hasn't finished mounting — returns None (no side-effects)."""
         output = lsblk_output([
             {"name": "sdb", "rm": True, "fstype": None, "mountpoint": None,
              "children": [
@@ -85,37 +81,12 @@ class TestFindUsbMount:
                   "mountpoint": None, "children": []}
              ]}
         ])
-        lsblk_result = type("R", (), {"stdout": output, "returncode": 0})()
-        ok_result = type("R", (), {"stdout": "", "returncode": 0})()
-
-        def fake_run(cmd, **kwargs):
-            if cmd[0] == "lsblk":
-                return lsblk_result
-            return ok_result  # sudo mount
-
-        with patch("earshot.usb_offload.subprocess.run", side_effect=fake_run):
-            result = find_usb_mount()
-        from earshot.usb_offload import _EARSHOT_MOUNT
-        assert result == _EARSHOT_MOUNT
-
-    def test_returns_none_when_mount_fails(self):
-        output = lsblk_output([
-            {"name": "sdb", "rm": True, "fstype": None, "mountpoint": None,
-             "children": [
-                 {"name": "sdb1", "rm": True, "fstype": "vfat",
-                  "mountpoint": None, "children": []}
-             ]}
-        ])
-        lsblk_result = type("R", (), {"stdout": output, "returncode": 0})()
-
-        def fake_run(cmd, **kwargs):
-            if cmd[0] == "lsblk":
-                return lsblk_result
-            raise OSError("Permission denied")
-
-        with patch("earshot.usb_offload.subprocess.run", side_effect=fake_run):
+        with patch("earshot.usb_offload.subprocess.run") as mock_run:
+            mock_run.return_value = type("R", (), {"stdout": output})()
             result = find_usb_mount()
         assert result is None
+        # Only lsblk should have been called — no mount attempts
+        assert mock_run.call_count == 1
 
     def test_returns_mount_point_when_removable_vfat_mounted(self, tmp_path):
         mount = str(tmp_path / "media" / "EARSHOT")
@@ -196,7 +167,7 @@ class TestMoveRecordingsToStick:
         recordings = tmp_path / "recordings"
         stick = tmp_path / "stick"
         stick.mkdir()
-        session = self._make_session(
+        self._make_session(
             recordings,
             "20260101T120000",
             {"audio-001.opus": b"ok", "recording-002.wav": b"raw", ".failed_002": b""},
@@ -247,13 +218,15 @@ class TestAppUsbOffload:
         app._hal = make_hal(StubButton())
         app._usb_stick_pending.set()
 
-        with patch("earshot.app.find_usb_mount", return_value=stick), \
+        with patch("earshot.app.find_usb_device", return_value=("/dev/sda1", str(stick))), \
+             patch("earshot.app.eject_usb_device"), \
              patch("earshot.app.flash_single_blue"):
             app._usb_offload()
 
         assert (stick / "20260101T120000" / "audio-001.opus").exists()
         assert not session.exists()
         assert not app._usb_error.is_set()
+        assert not app._usb_stick_pending.is_set()
 
     def test_usb_offload_sets_error_on_enospc(self, tmp_path):
         """_usb_offload sets _usb_error and shows orange LED when stick is full."""
@@ -271,11 +244,25 @@ class TestAppUsbOffload:
         app._usb_stick_pending.set()
 
         enospc = OSError(errno.ENOSPC, "No space left")
-        with patch("earshot.app.find_usb_mount", return_value=stick), \
+        with patch("earshot.app.find_usb_device", return_value=("/dev/sda1", str(stick))), \
              patch("earshot.app.move_recordings_to_stick", side_effect=enospc):
             app._usb_offload()
 
         assert app._usb_error.is_set()
+
+    def test_usb_offload_skips_when_not_mounted(self, tmp_path):
+        """_usb_offload clears pending and skips if stick is present but not yet mounted."""
+        cfg = make_config(tmp_path)
+        cfg.storage.recordings_dir.mkdir(parents=True, exist_ok=True)
+        app = EarshotApp(cfg)
+        app._hal = make_hal(StubButton())
+        app._usb_stick_pending.set()
+
+        with patch("earshot.app.find_usb_device", return_value=("/dev/sda1", None)):
+            app._usb_offload()
+
+        assert not app._usb_stick_pending.is_set()
+        assert not app._usb_error.is_set()
 
     def _run_monitor_iterations(self, app: EarshotApp, mock_find, iterations: int) -> None:
         """Run the USB monitor loop for a fixed number of find() calls, then stop."""
