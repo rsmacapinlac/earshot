@@ -151,6 +151,8 @@ class EarshotApp:
 
             # Wait for a stable press.
             while not hal.button.pressed():
+                if self._usb_stick_pending.is_set():
+                    return "usb"
                 time.sleep(poll_s)
             time.sleep(poll_s)
             if not hal.button.pressed():
