@@ -12,9 +12,9 @@ from unittest.mock import patch
 import pytest
 
 from earshot.app import EarshotApp
-from earshot.config import AppConfig, AudioConfig, RecordingConfig, StorageConfig
+from earshot.config import AppConfig, AudioConfig, HardwareConfig, RecordingConfig, StorageConfig
 from earshot.hal.bundle import Hal
-from earshot.hal.stub import StubAudioCapture, StubButton, StubLED
+from earshot.hal.stub import StubAudioCapture, StubButton, StubDisplay, StubLED
 from earshot.usb_offload import find_usb_mount, move_recordings_to_stick
 
 
@@ -24,6 +24,7 @@ from earshot.usb_offload import find_usb_mount, move_recordings_to_stick
 
 def make_config(tmp_path: Path) -> AppConfig:
     return AppConfig(
+        hardware=HardwareConfig(hat="respeaker"),
         audio=AudioConfig(sample_rate=16000, channels=2, bit_depth=16, opus_bitrate=32),
         recording=RecordingConfig(
             chunk_duration_seconds=10.0,
@@ -43,6 +44,7 @@ def make_hal(button: StubButton) -> Hal:
     return Hal(
         led=StubLED(),
         button=button,
+        display=StubDisplay(),
         pi_led=None,
         animator=None,
         _audio_factory=lambda: StubAudioCapture(channels=2, sample_rate=16000),

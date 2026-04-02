@@ -6,7 +6,7 @@
 Dependency isolation is needed for the Python application. Docker was considered as an alternative to a Python virtual environment.
 
 ## Decision
-Use a Python virtual environment (venv) rather than Docker for the Pi application.
+Use a Python virtual environment (venv) rather than Docker for the Pi application. The minimum Python version is **3.11**, which ships with Raspberry Pi OS Bookworm on both supported SBCs — no additional Python installation step is required.
 
 ## Consequences
 - No Docker daemon overhead (~50–100MB RAM saved, meaningful on the 2GB minimum target).

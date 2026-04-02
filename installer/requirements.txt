@@ -3,14 +3,18 @@
 # APA102 RGB LED (SPI-controlled, onboard the ReSpeaker HAT)
 apa102-pi
 
-# GPIO (button on GPIO17)
+# GPIO (button on GPIO17; Whisplay LED on GPIO23/24/25)
 RPi.GPIO
+gpiozero
 
-# Low-level SPI access
+# Low-level SPI access (APA102 on ReSpeaker)
 spidev
 
 # Audio capture via PyAudio
 pyaudio
+
+# LCD display (Whisplay HAT ST7789P3)
+luma.lcd
 
 # Config file (TOML)
 # tomllib is in stdlib from Python 3.11+ — tomli is only needed on older versions

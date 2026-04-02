@@ -22,7 +22,13 @@ from earshot.storage import (
     recording_directory,
     recordings_root,
 )
-from earshot.usb_offload import eject_usb_device, find_usb_device, find_usb_mount, move_recordings_to_stick
+from earshot.usb_offload import (
+    GadgetOffload,
+    eject_usb_device,
+    find_usb_device,
+    find_usb_mount,
+    move_recordings_to_stick,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -37,6 +43,7 @@ class EarshotApp:
         self._usb_error = threading.Event()
         self._usb_stop = threading.Event()
         self._encode_failure = threading.Event()
+        self._gadget: GadgetOffload | None = None
 
     def run(self) -> None:
         cfg = self._cfg
@@ -64,11 +71,17 @@ class EarshotApp:
         )
         usb_thread.start()
 
+        # FR-12: Pi Zero 2W USB gadget mode — only active when VBUS sysfs path exists.
+        gadget = GadgetOffload(recordings_root(cfg))
+        gadget.start()
+        self._gadget = gadget
+
         try:
             self._main_loop()
         finally:
             self._usb_stop.set()
             usb_thread.join(timeout=5.0)
+            gadget.stop()
             hal.close()
 
     def _disk_blocked(self) -> bool:
@@ -98,6 +111,18 @@ class EarshotApp:
                 self._usb_offload()
                 continue
 
+            # USB gadget: host connected while idle → activate mass storage.
+            if self._gadget is not None and self._gadget.pending.is_set() and not self._gadget.is_active:
+                hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+                if self._gadget.activate():
+                    # Stay in gadget mode until host disconnects (pending cleared by monitor).
+                    while self._gadget.is_active and not self._usb_stop.is_set():
+                        if not self._gadget.pending.is_set():
+                            break
+                        time.sleep(0.5)
+                self._set_idle_led(self._disk_blocked())
+                continue
+
             self._set_idle_led(False)
             _log.info("Ready: green = idle, orange = disk full, press button to record.")
 
@@ -116,6 +141,17 @@ class EarshotApp:
             # USB stick was inserted during recording → offload now that session is done.
             if self._usb_stick_pending.is_set() and not self._usb_error.is_set():
                 self._usb_offload()
+            # USB gadget was pending during recording → activate now.
+            elif self._gadget is not None and self._gadget.pending.is_set() and not self._gadget.is_active:
+                hal = self._hal
+                assert hal is not None
+                hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+                if self._gadget.activate():
+                    while self._gadget.is_active and not self._usb_stop.is_set():
+                        if not self._gadget.pending.is_set():
+                            break
+                        time.sleep(0.5)
+                self._set_idle_led(self._disk_blocked())
 
     def _wait_idle_button(self) -> str:
         """Wait for a debounced short click (record) or long hold (shutdown)."""

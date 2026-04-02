@@ -1,4 +1,4 @@
-"""USB stick detection and recording offload (FR-11, Pi 4B)."""
+"""USB offload: FR-11 stick offload (Pi 4B) and FR-12 gadget mode (Pi Zero 2W)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import json
 import logging
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -92,6 +93,177 @@ def move_recordings_to_stick(recordings_root: Path, mount: Path) -> None:
         dest = mount / session_dir.name
         _move_session(session_dir, dest)
         _log.info("Offloaded session %s", session_dir.name)
+
+
+# ── FR-12: Pi Zero 2W USB gadget mode ────────────────────────────────────────
+
+# VBUS detection: the Pi Zero 2W OTG port presents VBUS on /sys when a USB
+# host (laptop) connects.  We watch this path to detect connect/disconnect.
+_VBUS_PATH = Path("/sys/class/power_supply/usb/present")
+
+# g_mass_storage backing file — must be a directory exposed as a FAT32 image,
+# or a pre-formatted loop image.  We use the raw recordings directory path
+# together with a loop device created at connect time.
+_GADGET_MODULE = "g_mass_storage"
+
+
+class GadgetOffload:
+    """Pi Zero 2W USB mass-storage gadget offload (FR-12).
+
+    On USB host connect: remounts ``recordings_dir`` read-only and loads
+    ``g_mass_storage`` so the host can read recordings as a USB drive.
+    On disconnect: unloads the module and restores read-write access.
+
+    Usage::
+
+        go = GadgetOffload(recordings_dir)
+        go.start()          # begins monitoring in background
+        ...
+        go.stop()           # call before process exit
+
+    The ``pending`` property is set while a recording session is in progress
+    at the time of USB connect.  The caller should check it and trigger
+    ``activate()`` once the session ends.
+    """
+
+    def __init__(self, recordings_dir: Path) -> None:
+        self._recordings_dir = recordings_dir
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._active = False
+        self._lock = threading.Lock()
+        self.pending = threading.Event()
+
+    # ── public API ────────────────────────────────────────────────────────────
+
+    def start(self) -> None:
+        """Begin monitoring for USB host connection in a background thread."""
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._monitor_loop,
+            name="earshot-gadget",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop monitoring; deactivate gadget if active."""
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5.0)
+            self._thread = None
+        if self._active:
+            self._deactivate()
+
+    @property
+    def is_active(self) -> bool:
+        with self._lock:
+            return self._active
+
+    def activate(self) -> bool:
+        """Remount read-only and load g_mass_storage.  Returns True on success."""
+        with self._lock:
+            if self._active:
+                return True
+        try:
+            self._recordings_dir.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["sudo", "mount", "-o", "remount,ro", str(self._recordings_dir)],
+                check=True,
+                timeout=10.0,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            _log.warning(
+                "gadget: remount read-only failed: %s — skipping gadget activation",
+                exc.stderr.decode().strip() if exc.stderr else exc,
+            )
+            return False
+
+        try:
+            subprocess.run(
+                [
+                    "sudo",
+                    "modprobe",
+                    _GADGET_MODULE,
+                    f"file={self._recordings_dir}",
+                    "ro=1",
+                    "removable=1",
+                ],
+                check=True,
+                timeout=15.0,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            _log.error(
+                "gadget: modprobe %s failed: %s",
+                _GADGET_MODULE,
+                exc.stderr.decode().strip() if exc.stderr else exc,
+            )
+            self._remount_rw()
+            return False
+
+        with self._lock:
+            self._active = True
+        _log.info("gadget: g_mass_storage active — recordings exposed to host")
+        return True
+
+    def deactivate(self) -> None:
+        """Unload g_mass_storage and restore read-write mount."""
+        self._deactivate()
+
+    # ── internals ─────────────────────────────────────────────────────────────
+
+    def _deactivate(self) -> None:
+        with self._lock:
+            if not self._active:
+                return
+        try:
+            subprocess.run(
+                ["sudo", "modprobe", "-r", _GADGET_MODULE],
+                check=False,
+                timeout=10.0,
+                capture_output=True,
+            )
+        except Exception as exc:
+            _log.warning("gadget: modprobe -r failed: %s", exc)
+        self._remount_rw()
+        with self._lock:
+            self._active = False
+        _log.info("gadget: disconnected — recordings read-write restored")
+
+    def _remount_rw(self) -> None:
+        try:
+            subprocess.run(
+                ["sudo", "mount", "-o", "remount,rw", str(self._recordings_dir)],
+                check=False,
+                timeout=10.0,
+                capture_output=True,
+            )
+        except Exception as exc:
+            _log.warning("gadget: remount read-write failed: %s", exc)
+
+    def _vbus_present(self) -> bool:
+        """Return True if a USB host is providing VBUS (5V) on the OTG port."""
+        try:
+            return _VBUS_PATH.read_text().strip() == "1"
+        except OSError:
+            return False
+
+    def _monitor_loop(self) -> None:
+        was_connected = False
+        while not self._stop_event.wait(2.0):
+            now_connected = self._vbus_present()
+            if now_connected and not was_connected:
+                _log.info("gadget: USB host connected")
+                self.pending.set()  # caller activates when session allows
+            elif not now_connected and was_connected:
+                _log.info("gadget: USB host disconnected")
+                self.pending.clear()
+                if self._active:
+                    self._deactivate()
+            was_connected = now_connected
 
 
 def _move_session(src: Path, dest: Path) -> None:

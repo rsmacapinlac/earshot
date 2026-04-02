@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -18,6 +18,11 @@ def _load_toml(path: Path) -> dict[str, Any]:
         import tomli
 
         return tomli.loads(data.decode())
+
+
+@dataclass(frozen=True, slots=True)
+class HardwareConfig:
+    hat: Literal["respeaker", "whisplay"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +53,7 @@ class StorageConfig:
 
 @dataclass(frozen=True, slots=True)
 class AppConfig:
+    hardware: HardwareConfig
     audio: AudioConfig
     recording: RecordingConfig
     storage: StorageConfig
@@ -71,6 +77,12 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
             "Set EARSHOT_CONFIG or pass --config, or run from the install directory."
         )
     raw = _load_toml(path)
+    hw = _section(raw, "hardware")
+    hat_val = str(hw.get("hat", "respeaker")).strip().lower()
+    if hat_val not in ("respeaker", "whisplay"):
+        raise ValueError(
+            f"config.toml [hardware] hat must be 'respeaker' or 'whisplay', got {hat_val!r}"
+        )
     audio = _section(raw, "audio")
     recording = _section(raw, "recording")
     storage = _section(raw, "storage")
@@ -82,6 +94,7 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
         else data_dir / "recordings"
     )
     return AppConfig(
+        hardware=HardwareConfig(hat=hat_val),  # type: ignore[arg-type]
         audio=AudioConfig(
             sample_rate=int(audio["sample_rate"]),
             channels=int(audio["channels"]),

@@ -7,8 +7,8 @@ import os
 
 from earshot.config import AppConfig
 from earshot.hal.bundle import Hal
-from earshot.hal.protocols import AudioCapture, ButtonDriver, LEDDriver, LedPattern
-from earshot.hal.stub import StubAudioCapture, StubButton, StubLED, StdinPulseButton
+from earshot.hal.protocols import AudioCapture, ButtonDriver, DisplayDriver, LEDDriver, LedPattern
+from earshot.hal.stub import StubAudioCapture, StubButton, StubDisplay, StubLED, StdinPulseButton
 
 _log = logging.getLogger(__name__)
 
@@ -50,10 +50,11 @@ def create_hal(cfg: AppConfig) -> Hal:
     mode = _hal_mode()
     if mode == "stub":
         return _stub_hal(cfg)
+    hat = cfg.hardware.hat
     if mode == "pi":
-        return _pi_hal(cfg)
+        return _pi_hal(cfg, hat)
     try:
-        return _pi_hal(cfg)
+        return _pi_hal(cfg, hat)
     except Exception:
         _log.exception("Pi HAL failed; falling back to stub hardware")
         return _stub_hal(cfg)
@@ -62,6 +63,7 @@ def create_hal(cfg: AppConfig) -> Hal:
 def _stub_hal(cfg: AppConfig) -> Hal:
     led = StubLED()
     button: ButtonDriver = StdinPulseButton() if _stdin_ok() else StubButton()
+    display: DisplayDriver = StubDisplay()
 
     def audio_factory() -> AudioCapture:
         return StubAudioCapture(cfg.audio.channels, cfg.audio.sample_rate)
@@ -69,10 +71,12 @@ def _stub_hal(cfg: AppConfig) -> Hal:
     def on_close() -> None:
         led.close()
         button.close()
+        display.close()
 
     return Hal(
         led=led,
         button=button,
+        display=display,
         pi_led=None,
         animator=None,
         _audio_factory=audio_factory,
@@ -80,14 +84,10 @@ def _stub_hal(cfg: AppConfig) -> Hal:
     )
 
 
-def _pi_hal(cfg: AppConfig) -> Hal:
+def _pi_hal(cfg: AppConfig, hat: str) -> Hal:
     from earshot.hal.animator import LedAnimator
-    from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton, PiLED
+    from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton
 
-    pi_led = PiLED()
-    animator = LedAnimator(pi_led)
-    animator.start()
-    led: LEDDriver = _AnimatingLed(animator)
     button = PiButton()
     device_index = cfg.audio.input_device_index
     alsa_pcm = cfg.audio.alsa_pcm
@@ -98,13 +98,35 @@ def _pi_hal(cfg: AppConfig) -> Hal:
             return PiAlsaCapture(alsa_pcm, cfg.audio.sample_rate, cfg.audio.channels)
         return PiAudioCapture(cfg.audio.sample_rate, cfg.audio.channels, device_index)
 
+    if hat == "whisplay":
+        from earshot.hal.whisplay import WhisplayDisplay, WhisplayLED
+
+        pi_led = None
+        animator = None
+        led: LEDDriver = WhisplayLED()
+        display: DisplayDriver = WhisplayDisplay()
+    else:
+        # ReSpeaker: APA102 LED via SPI + LedAnimator
+        from earshot.hal.pi import PiLED
+
+        pi_led = PiLED()
+        animator = LedAnimator(pi_led)
+        animator.start()
+        led = _AnimatingLed(animator)
+        display = StubDisplay()  # ReSpeaker has no LCD — no-op display
+
     def on_close() -> None:
-        animator.close()
+        if animator is not None:
+            animator.close()
+        else:
+            led.close()
         button.close()
+        display.close()
 
     return Hal(
         led=led,
         button=button,
+        display=display,
         pi_led=pi_led,
         animator=animator,
         _audio_factory=audio_factory,
@@ -115,6 +137,7 @@ def _pi_hal(cfg: AppConfig) -> Hal:
 __all__ = [
     "AudioCapture",
     "ButtonDriver",
+    "DisplayDriver",
     "Hal",
     "LEDDriver",
     "LedPattern",

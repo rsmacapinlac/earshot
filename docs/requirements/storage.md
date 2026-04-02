@@ -1,6 +1,8 @@
 # Storage
 
-## FR-6: Local Storage
+> See [device-state.md](device-state.md) for LED colours during USB transfer states.
+
+## FR-7: Local Storage
 - Recordings are saved locally and remain on the device until offloaded via USB.
 - Default storage path: `~/earshot/recordings/<YYYYMMDDTHHMMSS>/` (e.g. `20260329T143022`)
 - The recordings directory is configurable via `storage.recordings_dir` in `config.toml`.
@@ -67,16 +69,18 @@ Allows a user to retrieve recordings by plugging a micro-USB OTG cable from the 
 
 ### Behaviour
 
-- The device monitors for USB host connection via VBUS detection (polling `/sys/class/power_supply/` or a udev rule).
-- On connection:
-  1. Any active recording is stopped immediately.
-  2. The recordings partition/directory is remounted read-only.
-  3. The `g_mass_storage` USB gadget module is loaded, backed by the recordings partition.
-  4. LED indicates offload mode (colour TBD).
-- The laptop sees a standard USB mass storage device — no drivers or software required.
+- The device monitors for USB host connection via VBUS detection using a udev rule.
+- **If no recording session is active on connection:** offload begins immediately (steps 1–4 below).
+- **If a recording session is active on connection:** the connection is registered and offload is deferred. The device continues recording normally (LED remains **red**). On the Whisplay HAT, Zone D of the display shows `USB pending`. When the user presses the button to end the session (and the final chunk finishes encoding), offload begins.
+  - **Note:** The laptop will not see a USB mass storage device until the deferred offload begins — this is expected behaviour. The cable should remain plugged in.
+- On offload start:
+  1. The recordings directory is remounted read-only.
+  2. The `g_mass_storage` USB gadget module is loaded, backed by the recordings directory.
+  3. The LED pulsates **blue** (slow).
+  4. The laptop sees a standard USB mass storage device — no drivers or software required.
 - On disconnection:
   1. `g_mass_storage` is unloaded.
-  2. The recordings partition is remounted read-write.
+  2. The recordings directory is remounted read-write.
   3. The device returns to idle state (FR-1).
 
 ### Prerequisites
@@ -86,5 +90,5 @@ Allows a user to retrieve recordings by plugging a micro-USB OTG cable from the 
 
 ### Constraints
 
-- The device does not record while in offload mode.
+- The device does not record while in active offload mode (once `g_mass_storage` is loaded).
 - The user must safely eject the drive on the laptop before unplugging to avoid filesystem corruption.

@@ -1,6 +1,16 @@
 # Earshot
 
-A Raspberry Pi application that records conversations and uploads audio to an API for transcription and speaker diarization.
+```
+·
+ )
+ ))   EARSHOT
+ )))
+ ))
+ )
+·
+```
+
+A Raspberry Pi application that records conversations locally and offloads audio via USB. No cloud, no network dependency.
 
 ## How it works
 
@@ -17,12 +27,12 @@ To safely shut down, hold the button for 3 seconds while idle.
 
 On the desk:
 - Raspberry Pi 4B (2GB minimum, 4GB recommended)
-- Seeed ReSpeaker 2-Mic Pi HAT
+- Seeed ReSpeaker 2-Mic Pi HAT or Whisplay HAT
 
 Portable
 - Raspberry Pi Zero 2 W
 - Whisplay Hat
-- PiSugar Battery
+- PiSugar S for Zero (or equivalent) — connects via pogo pins, no USB ports occupied
 
 ## OS Requirements
 
@@ -77,4 +87,3 @@ git tag v0.1 && git push --tags
 
 `0.x` = pre-stable. `1.0` marks the first stable release.
 
-## Backlog

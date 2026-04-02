@@ -26,3 +26,5 @@ Each ADR follows this structure:
 | [0010](0010-local-only-no-api-sync.md) | Local-only recorder, no API sync | Accepted |
 | [0011](0011-filesystem-as-state.md) | Filesystem as state, no SQLite | Accepted |
 | [0012](0012-chunked-recording.md) | Chunked recording (15-minute default) | Accepted |
+| [0013](0013-whisplay-hat-support.md) | Whisplay HAT as a supported audio HAT | Accepted |
+| [0014](0014-ascii-art-display.md) | ASCII art for LCD display rendering | Accepted |

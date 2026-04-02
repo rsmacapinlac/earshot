@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
-from earshot.hal.protocols import AudioCapture, ButtonDriver, LEDDriver
+from earshot.hal.protocols import AudioCapture, ButtonDriver, DisplayDriver, LEDDriver
 
 if TYPE_CHECKING:
     from earshot.hal.animator import LedAnimator
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class Hal:
     led: LEDDriver
     button: ButtonDriver
+    display: DisplayDriver
     pi_led: PiLED | None
     animator: LedAnimator | None
     _audio_factory: Callable[[], AudioCapture]

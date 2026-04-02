@@ -7,7 +7,7 @@ Earshot has two distinct development contexts:
 | Layer | Hardware required | Where to develop |
 |---|---|---|
 | Encoding pipeline (WAV → Opus) | No | Local dev machine |
-| Hardware (GPIO, LED, audio capture) | Yes (or mocked) | Local with mocks / Pi for integration |
+| Hardware (GPIO, LED, audio capture, display) | Yes (or stubbed) | Local with stubs / Pi for integration |
 
 ---
 
@@ -17,13 +17,23 @@ Earshot has two distinct development contexts:
 ffmpeg-based WAV-to-Opus encoding is hardware-agnostic and runs on any Linux/Mac/Windows machine. Develop and test encoding logic locally using sample audio files.
 
 ### Hardware Abstraction
-Hardware-specific components (button, LED, audio capture) are implemented behind interfaces:
+Hardware-specific components are implemented behind interfaces (see ADR-0007). Each interface has a **Real** implementation (Pi hardware) and a **Stub** implementation (in-memory/no-op for local development).
 
-- `ButtonInterface` — detects press events
-- `LEDInterface` — controls LED colour and pattern
-- `AudioInterface` — captures audio from the microphone
+| Interface | Responsibility | Stub behaviour |
+|---|---|---|
+| `ButtonInterface` | Button press and hold detection | Simulates events via keyboard or test input |
+| `LEDInterface` | LED colour and pattern control | Logs colour/pattern to stdout |
+| `AudioCaptureInterface` | Microphone audio capture via ALSA | Reads from a fixture WAV file |
+| `AudioOutputInterface` | Speaker output (Whisplay HAT only) | No-op |
+| `DisplayInterface` | LCD display rendering (Whisplay HAT only) | Prints ASCII frames to stdout |
 
-Locally, stub implementations are used in place of the real GPIO/SPI/ALSA drivers, allowing the full application logic to run and be tested without a Pi.
+The active HAT implementation is selected at startup based on `hardware.hat` in `config.toml`. Pass `--stub` to force stub implementations regardless of environment:
+
+```bash
+python -m earshot --stub
+```
+
+This is the standard way to run the application on a development machine without a Pi.
 
 ---
 
@@ -48,6 +58,17 @@ Maintain a small set of real recordings in `tests/fixtures/` as regression fixtu
 ## Iteration Cycle
 
 1. Develop and test encoding logic locally against fixture audio files
-2. Develop application logic against mock hardware interfaces
+2. Develop application logic against stub hardware interfaces
 3. Push to the Pi and run `sudo systemctl restart earshot` for hardware integration testing
 4. Capture any new edge-case recordings as fixtures
+
+---
+
+## Target Hardware
+
+| Config | SBC | HAT |
+|---|---|---|
+| Desk | Pi 4B | ReSpeaker 2-Mic or Whisplay |
+| Portable | Pi Zero 2W | Whisplay |
+
+See [hardware.md](requirements/hardware.md) for full component details.

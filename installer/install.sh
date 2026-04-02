@@ -41,11 +41,28 @@ VENV_DIR="$REPO_DIR/.venv"
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║         Earshot Installer v0.3           ║"
+echo "║         Earshot Installer v0.4           ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 log "Installing for user: $INSTALL_USER (home: $INSTALL_HOME)"
 echo ""
+
+# ── HAT selection ────────────────────────────────────────────────────────────
+
+echo "Which HAT is connected?"
+echo "  1) Seeed ReSpeaker 2-Mic Pi HAT"
+echo "  2) Whisplay HAT (PiSugar)"
+echo ""
+while true; do
+    read -rp "Enter 1 or 2: " hat_choice
+    case "$hat_choice" in
+        1) HAT="respeaker"; break ;;
+        2) HAT="whisplay";  break ;;
+        *) echo "  Please enter 1 or 2." ;;
+    esac
+done
+echo ""
+log "Selected HAT: $HAT"
 
 # ── System packages ─────────────────────────────────────────────────────────
 
@@ -54,45 +71,63 @@ sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --fix-missing || true
 sudo apt-get install -y git curl
 
-# ── ReSpeaker driver ────────────────────────────────────────────────────────
-# HinTak/seeed-voicecard — Bookworm / kernel 6.x friendly fork.
+# ── HAT audio driver (mutually exclusive) ────────────────────────────────────
 
-log "Installing ReSpeaker seeed-voicecard driver..."
-seeed_dir=$(mktemp -d)
-git clone --depth=1 "$SEEED_URL" "$seeed_dir"
-# Patch seeed-voicecard.c for kernel 6.6+: rtd->id was replaced by rtd->num.
-# Without this patch, DKMS fails to build on kernel 6.12+ with:
-#   error: 'struct snd_soc_pcm_runtime' has no member named 'id'
-sed -i 's/rtd->id/rtd->num/g' "$seeed_dir/seeed-voicecard.c"
-(cd "$seeed_dir" && sudo bash install.sh)
-rm -rf "$seeed_dir"
-
-# ── Ensure seeed-2mic-voicecard dtoverlay is in config.txt ───────────────────
-# The HinTak install.sh writes i2s-mmap/dtparam=i2s=on but may omit the
-# seeed-2mic-voicecard overlay that creates the ALSA sound card device node.
-# The MCLK itself is provided by the DKMS kernel module above; the dtoverlay
-# is needed so the card appears in arecord -l and PipeWire can discover it.
 _boot_cfg=""
 for _f in /boot/firmware/config.txt /boot/config.txt; do
     [ -f "$_f" ] && _boot_cfg="$_f" && break
 done
-if [ -n "$_boot_cfg" ]; then
-    if ! grep -q "dtoverlay=seeed-2mic-voicecard" "$_boot_cfg"; then
-        log "Adding dtoverlay=seeed-2mic-voicecard to $_boot_cfg..."
-        echo "dtoverlay=seeed-2mic-voicecard" | sudo tee -a "$_boot_cfg" >/dev/null
+
+if [ "$HAT" = "respeaker" ]; then
+    # HinTak/seeed-voicecard — Bookworm / kernel 6.x friendly fork.
+    log "Installing ReSpeaker seeed-voicecard driver..."
+    seeed_dir=$(mktemp -d)
+    git clone --depth=1 "$SEEED_URL" "$seeed_dir"
+    # Patch seeed-voicecard.c for kernel 6.6+: rtd->id was replaced by rtd->num.
+    sed -i 's/rtd->id/rtd->num/g' "$seeed_dir/seeed-voicecard.c"
+    (cd "$seeed_dir" && sudo bash install.sh)
+    rm -rf "$seeed_dir"
+
+    if [ -n "$_boot_cfg" ]; then
+        if ! grep -q "dtoverlay=seeed-2mic-voicecard" "$_boot_cfg"; then
+            log "Adding dtoverlay=seeed-2mic-voicecard to $_boot_cfg..."
+            echo "dtoverlay=seeed-2mic-voicecard" | sudo tee -a "$_boot_cfg" >/dev/null
+        else
+            info "dtoverlay=seeed-2mic-voicecard already present."
+        fi
     else
-        info "dtoverlay=seeed-2mic-voicecard already present in $_boot_cfg."
+        err "Could not find Pi boot config.txt — add 'dtoverlay=seeed-2mic-voicecard' manually."
     fi
+
+    ALSA_PCM="plughw:CARD=seeed2micvoicec,DEV=0"
+
 else
-    err "Could not find Pi boot config.txt — add 'dtoverlay=seeed-2mic-voicecard' manually."
+    # Whisplay HAT: upstream WM8960 driver (different from seeed-voicecard).
+    log "Installing Whisplay WM8960 driver..."
+    sudo apt-get install -y raspberrypi-kernel-headers
+    # The upstream WM8960 driver is enabled via dtoverlay — no custom DKMS needed.
+    if [ -n "$_boot_cfg" ]; then
+        if ! grep -q "dtoverlay=wm8960-soundcard" "$_boot_cfg"; then
+            log "Adding dtoverlay=wm8960-soundcard to $_boot_cfg..."
+            echo "dtoverlay=wm8960-soundcard" | sudo tee -a "$_boot_cfg" >/dev/null
+        else
+            info "dtoverlay=wm8960-soundcard already present."
+        fi
+        # Pi Zero 2W: enable OTG gadget mode (FR-12)
+        if ! grep -q "dtoverlay=dwc2" "$_boot_cfg"; then
+            log "Adding dtoverlay=dwc2 (USB gadget mode) to $_boot_cfg..."
+            echo "dtoverlay=dwc2" | sudo tee -a "$_boot_cfg" >/dev/null
+        else
+            info "dtoverlay=dwc2 already present."
+        fi
+    else
+        err "Could not find Pi boot config.txt — add 'dtoverlay=wm8960-soundcard' manually."
+    fi
+
+    ALSA_PCM="plughw:CARD=wm8960soundcard,DEV=0"
 fi
 
 # ── System dependencies ─────────────────────────────────────────────────────
-# Do NOT remove seeed-voicecard from DKMS. The DKMS kernel module
-# (snd_soc_seeed_voicecard) is the machine driver that ties the WM8960 codec
-# to the BCM2835 I2S interface and provides MCLK. Without it, the ALSA card
-# enumerates but every hw_params call fails with "No MCLK configured".
-# Kernel upgrades will trigger a DKMS rebuild automatically.
 
 log "Installing system dependencies..."
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -141,6 +176,8 @@ log "Installing Earshot package (editable) with Pi extras..."
 
 log "Writing configuration file..."
 export CONFIG_PATH="$REPO_DIR/config.toml"
+export HAT_VALUE="$HAT"
+export ALSA_PCM_VALUE="$ALSA_PCM"
 "$VENV_DIR/bin/python" - <<'PYCFG'
 import os
 from pathlib import Path
@@ -148,16 +185,19 @@ from pathlib import Path
 import tomli_w
 
 config_path = Path(os.environ["CONFIG_PATH"])
+hat = os.environ["HAT_VALUE"]
+alsa_pcm = os.environ["ALSA_PCM_VALUE"]
 
 cfg = {
+    "hardware": {
+        "hat": hat,
+    },
     "audio": {
         "sample_rate": 16000,
         "channels": 2,
         "bit_depth": 16,
         "opus_bitrate": 32,
-        # ReSpeaker: bypass PipeWire and capture directly via ALSA (works from a system
-        # service without a user session). Use arecord -l to confirm the card name.
-        "alsa_pcm": "plughw:CARD=seeed2micvoicec,DEV=0",
+        "alsa_pcm": alsa_pcm,
     },
     "recording": {
         "chunk_duration_seconds": 900,  # 15 minutes
@@ -168,12 +208,17 @@ cfg = {
         "data_dir": "~/earshot",
         "disk_threshold_percent": 90,
     },
+    "display": {
+        "brightness": 80,
+    },
 }
 
 header = (
     "# Earshot Configuration\n"
     "# Edit this file to customise behaviour.\n"
     "# Apply changes: sudo systemctl restart earshot\n"
+    "#\n"
+    "# hardware.hat — connected HAT: 'respeaker' or 'whisplay'\n"
     "#\n"
     "# audio.alsa_pcm — ALSA capture device for arecord (preferred on Pi).\n"
     "#   Run: arecord -l   Use plughw:CARD,DEVICE (rate conversion).\n"
@@ -191,25 +236,37 @@ with open(config_path, "wb") as f:
 PYCFG
 chmod 600 "$REPO_DIR/config.toml"
 
-# ── USB offload: udev auto-mount rule ────────────────────────────────────────
-# A udev rule mounts FAT32 USB sticks to /mnt/earshot-usb automatically when
-# inserted.  The earshot service never needs sudo or elevated privileges for
-# USB offload — it just detects the mountpoint and copies files.
-# udisksctl power-off (D-Bus, no setuid) ejects the stick when done.
+# ── USB offload setup ────────────────────────────────────────────────────────
 
-log "Installing USB auto-mount rule and creating mount point..."
-INSTALL_UID="$(id -u)"
-INSTALL_GID="$(id -g)"
-sudo mkdir -p /mnt/earshot-usb
-UDEV_RULE="/etc/udev/rules.d/99-earshot-usb.rules"
-cat <<UDEV | sudo tee "$UDEV_RULE" >/dev/null
+if [ "$HAT" = "respeaker" ]; then
+    # FR-11: Pi 4B USB stick — udev auto-mount rule
+    log "Installing USB auto-mount rule and creating mount point..."
+    INSTALL_UID="$(id -u)"
+    INSTALL_GID="$(id -g)"
+    sudo mkdir -p /mnt/earshot-usb
+    UDEV_RULE="/etc/udev/rules.d/99-earshot-usb.rules"
+    cat <<UDEV | sudo tee "$UDEV_RULE" >/dev/null
 # Earshot: auto-mount FAT32 USB stick for recording offload (FR-11).
 # On Pi 4B, USB drives enumerate as sd*; the system SD card is mmcblk0.
 SUBSYSTEM=="block", ACTION=="add", KERNEL=="sd?[0-9]", ENV{ID_FS_TYPE}=="vfat", RUN{program}+="/usr/bin/mount -o uid=$INSTALL_UID,gid=$INSTALL_GID /dev/%k /mnt/earshot-usb"
 SUBSYSTEM=="block", ACTION=="remove", KERNEL=="sd?[0-9]", RUN{program}+="/usr/bin/umount -l /mnt/earshot-usb"
 UDEV
-sudo udevadm control --reload-rules
-info "udev rule written to $UDEV_RULE"
+    sudo udevadm control --reload-rules
+    info "udev rule written to $UDEV_RULE"
+else
+    # FR-12: Pi Zero 2W gadget mode — add sudoers rules for modprobe/mount
+    log "Installing sudoers rules for USB gadget mode..."
+    SUDOERS_FILE="/etc/sudoers.d/earshot-gadget"
+    cat <<SUDOERS | sudo tee "$SUDOERS_FILE" >/dev/null
+# Earshot: allow service user to manage USB gadget without a password (FR-12).
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/sbin/modprobe g_mass_storage *
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/sbin/modprobe -r g_mass_storage
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/mount -o remount,ro *
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/mount -o remount,rw *
+SUDOERS
+    sudo chmod 440 "$SUDOERS_FILE"
+    info "sudoers rule written to $SUDOERS_FILE"
+fi
 
 # ── systemd ──────────────────────────────────────────────────────────────────
 # Enable only — ALSA/HAT needs a reboot before the first start works cleanly.
@@ -235,7 +292,12 @@ echo "║  Install complete — rebooting the Pi                        ║"
 echo "║                                                              ║"
 echo "║  After boot:  sudo systemctl status earshot                 ║"
 echo "║               journalctl -u earshot -f                       ║"
-echo "║               arecord -l   # confirm ReSpeaker              ║"
+echo "║               arecord -l   # confirm audio card             ║"
+if [ "$HAT" = "whisplay" ]; then
+echo "║                                                              ║"
+echo "║  Whisplay HAT: plug into a laptop USB port to offload       ║"
+echo "║  recordings via USB mass storage (FR-12).                   ║"
+fi
 echo "║                                                              ║"
 echo "║  Optional: add a phone hotspot for SSH access on the go:   ║"
 echo "║    sudo nmcli connection add type wifi con-name hotspot \\   ║"

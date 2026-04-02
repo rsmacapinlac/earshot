@@ -13,12 +13,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Raspberry Pi: ReSpeaker capture, APA102 LED, GPIO button (see ADR 0007).
+# Raspberry Pi: audio capture, LEDs, GPIO button, display (see ADR 0007, 0013, 0014).
 pi = [
     "pyaudio",
     "apa102-pi",
     "RPi.GPIO",
+    "gpiozero",
     "spidev",
+    "luma.lcd",
 ]
 dev = [
     "pytest",

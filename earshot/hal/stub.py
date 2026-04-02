@@ -6,8 +6,9 @@ import logging
 import sys
 import threading
 import time
+from typing import Any
 
-from earshot.hal.protocols import AudioCapture, ButtonDriver, LEDDriver, LedPattern
+from earshot.hal.protocols import AudioCapture, ButtonDriver, DisplayDriver, LEDDriver, LedPattern
 
 _log = logging.getLogger(__name__)
 
@@ -80,6 +81,19 @@ class StdinPulseButton(ButtonDriver):
 
     def close(self) -> None:
         self._stop.set()
+
+
+class StubDisplay(DisplayDriver):
+    """Prints display state to stdout — fully observable without a Pi (ADR-0014)."""
+
+    def update(self, state: str, data: dict[str, Any]) -> None:
+        parts = [f"[DISPLAY] state={state}"]
+        for key, val in sorted(data.items()):
+            parts.append(f"{key}={val}")
+        _log.info(" ".join(parts))
+
+    def close(self) -> None:
+        pass
 
 
 class StubAudioCapture(AudioCapture):

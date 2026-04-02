@@ -1,22 +1,18 @@
-# 0001 — Audio Processing
+# 0001 — On-Device Audio Processing
 
 **Status:** Superseded by ADR-0010
 
 ## Context
 
-After recording, audio must be diarized and transcribed. This can be handled on-device or by sending audio to an external service.
-
-The original design required all processing to run on the Pi 4B. This imposed significant constraints: model selection was limited to what fits in 4GB RAM with no GPU, processing was slow, and the installer required downloading ~1GB of models and a Hugging Face account. The device's primary use case is recording conversations for later review — transcription does not need to happen on-device.
+The original design required all transcription and diarization to run locally on the Pi 4B using Whisper (ADR-0003) and pyannote.audio (ADR-0002). This imposed significant constraints: model selection was limited to what fits in 4GB RAM with no GPU, processing was slow (several minutes per hour of audio on Pi 4B hardware), and the installer required downloading ~1GB of models and a Hugging Face account.
 
 ## Decision
 
-Transcription and diarization will be performed server-side by the API. The Pi is responsible only for recording audio, encoding to Opus, storing recordings locally, and uploading to the API when connectivity is available.
+Keep all processing on-device: record, diarize, and transcribe locally without any external service.
 
 ## Consequences
 
-- The Pi has no model memory or CPU constraints for processing.
-- Install is significantly simpler: no PyTorch, no Whisper, no pyannote, no Hugging Face token required.
-- `result.json` is not generated on-device — results are owned by the API.
-- The "blue pulsing" phase after recording covers only the fast WAV→Opus encode step.
-- The device requires internet connectivity to produce transcripts. Recordings are never lost (audio is retained locally), but transcription only happens once audio is uploaded.
-- The API endpoint is required for transcription; without one configured, the device is an audio recorder only.
+- No API credentials or network dependency for transcription.
+- Significant installer complexity: PyTorch, Whisper, pyannote, Hugging Face token, model download.
+- Processing time is a constraint — the device is unavailable for recording while processing.
+- Superseded by ADR-0010, which removed transcription and diarization entirely from scope. The Pi now records and encodes only; post-processing is the user's responsibility after USB offload.

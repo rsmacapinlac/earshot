@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 class LedPattern(Enum):
@@ -55,3 +55,19 @@ class AudioCapture(Protocol):
     def stop(self) -> None: ...
 
     def close(self) -> None: ...
+
+
+@runtime_checkable
+class DisplayDriver(Protocol):
+    """LCD display on Whisplay HAT; no-op on ReSpeaker (ADR-0014)."""
+
+    def update(self, state: str, data: dict[str, Any]) -> None:
+        """Render the given device state and supplementary data to the display.
+
+        ``state`` is the string name of the current ``DeviceState`` (e.g.
+        ``"IDLE"``, ``"RECORDING"``).  ``data`` carries optional context keys
+        such as ``session_timer``, ``chunk_num``, ``disk_pct``.
+        """
+
+    def close(self) -> None:
+        """Release display resources (backlight off, SPI closed)."""

@@ -1,4 +1,4 @@
-# Recording
+# Device State
 
 ## LED States
 
@@ -45,7 +45,7 @@
 | Bit depth | 16-bit PCM |
 | Channels | Stereo (both mics captured) |
 
-> **Note:** 16kHz is the ReSpeaker HAT's native sample rate. The stereo capture is downmixed to mono before encoding.
+> **Note:** 16kHz is the target sample rate for both supported HATs. The stereo capture is downmixed to mono before encoding.
 
 ### FR-2a: Chunked Recording
 - Within a session, audio is recorded in configurable chunks (default: 15 minutes).
@@ -53,6 +53,7 @@
 - Completed chunks are encoded to Opus in the background while the next chunk records (pipeline encoding).
 - Chunk duration is configurable via `recording.chunk_duration_seconds` in `config.toml`.
 - There is no maximum session duration — recording continues until the button is pressed or the disk threshold is reached.
+- **If the disk threshold is reached mid-session:** recording stops immediately, the current chunk WAV is closed, and encoding is attempted. If encoding fails due to insufficient disk space, the WAV is retained with a `.failed_NNN` marker — the standard encoding failure path (FR-6a) applies.
 
 ## FR-3: Stop Recording
 - Pressing the button again stops the session (subject to minimum duration).
@@ -67,3 +68,9 @@
 - The LED transitions from green to slow pulsating **white**.
 - The LED fades to off when it is safe to unplug the device.
 - Button hold during recording or processing is ignored.
+
+## FR-5: Audio Feedback *(deferred to v2)*
+
+Speaker output is available on the Whisplay HAT. Audio cues on state transitions are planned for v2. No `AudioOutputInterface` implementation is required for v1.
+
+> See [display.md](display.md) for corresponding LCD display behaviour on the Whisplay HAT.

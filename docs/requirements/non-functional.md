@@ -9,7 +9,12 @@ The device operates entirely without internet connectivity. Recording, encoding,
 - A single chunk encoding failure does not terminate the session — recording continues into the next chunk.
 
 ## NFR-3: Startup Time
-The application should reach the green-light ready state within 60 seconds of boot.
+Startup time targets differ by SBC due to CPU speed:
+
+| SBC | Target |
+|---|---|
+| Pi 4B | 60 seconds from power-on to green-light ready |
+| Pi Zero 2W | 90 seconds from power-on to green-light ready |
 
 ## Out of Scope (v1)
 - Wake-word detection (always button-triggered)
@@ -18,4 +23,4 @@ The application should reach the green-light ready state within 60 seconds of bo
 - Web UI or local dashboard
 - Speaker identification (who a speaker is, not just that they differ)
 - On-device or server-side transcription and diarization
-- Audio feedback / beep on state transitions (requires speaker hardware)
+- Audio feedback / speaker output (hardware present on Whisplay HAT — deferred to v2)
