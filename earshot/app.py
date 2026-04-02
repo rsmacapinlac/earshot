@@ -108,12 +108,14 @@ class EarshotApp:
             hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
         else:
             hal.led.set_colour_and_pattern(0, 255, 0, LedPattern.SOLID)
+        now = datetime.now()
         hal.display.update(
             "IDLE",
             {
                 "disk_pct": self._disk_pct_int(),
                 "sessions_count": self._sessions_count(),
-                "time": datetime.now().strftime("%H:%M"),
+                "time": now.strftime("%H:%M"),
+                "date": now.strftime("%a %b %-d"),
             },
         )
 

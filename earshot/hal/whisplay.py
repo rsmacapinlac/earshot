@@ -370,8 +370,8 @@ class WhisplayDisplay(DisplayDriver):
             draw.text((12, 8), zone_a_label, fill=accent, font=self._font_large)
             # Zone B (~120px) — logo, small font so 7 lines fit
             draw.text((20, 65), logo_text, fill=accent, font=self._font_small)
-            # Zone C (~60px)  — primary data
-            draw.text((12, 195), zone_c, fill=white, font=self._font_medium)
+            # Zone C (~60px)  — primary data (font_small leaves room for two lines)
+            draw.text((12, 195), zone_c, fill=white, font=self._font_small)
             # Zone D (~40px)  — secondary data
             draw.text((12, 248), zone_d, fill=muted, font=self._font_small)
 
@@ -398,7 +398,9 @@ def _zone_c(state: str, data: dict[str, Any]) -> str:
     if state == "BOOTING":
         return "Starting..."
     if state == "IDLE":
-        return data.get("time", "--:--")
+        time_str = data.get("time", "--:--")
+        date_str = data.get("date", "")
+        return f"{time_str}\n{date_str}" if date_str else time_str
     if state == "RECORDING":
         return data.get("session_timer", "00:00:00")
     if state in ("ENCODING", "ENCODE_FAILED"):
