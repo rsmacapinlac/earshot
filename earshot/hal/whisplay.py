@@ -371,9 +371,9 @@ class WhisplayDisplay(DisplayDriver):
             # Zone B (~175px) — logo gets the bulk of the space
             draw.text((20, 55), logo_text, fill=accent, font=self._font_small)
             # Zone C (~20px)  — primary data, near bottom
-            draw.text((12, 232), zone_c, fill=white, font=self._font_small)
-            # Zone D (~20px)  — secondary data, bottom
-            draw.text((12, 256), zone_d, fill=muted, font=self._font_small)
+            draw.text((12, 228), zone_c, fill=white, font=self._font_small)
+            # Zone D (~30px)  — secondary data, bottom (two lines for IDLE)
+            draw.text((12, 248), zone_d, fill=muted, font=self._font_small)
 
             self._device.display(img)
         except Exception as exc:
@@ -423,15 +423,14 @@ def _zone_d(state: str, data: dict[str, Any]) -> str:
     sessions = data.get("sessions_count")
 
     if state == "IDLE":
-        parts = []
         time_str = data.get("time", "")
-        if time_str:
-            parts.append(time_str)
+        parts = []
         if sessions is not None:
             parts.append(f"{sessions} sessions")
         if disk_pct is not None:
             parts.append(f"{disk_pct}% disk")
-        return " · ".join(parts)
+        stats = " · ".join(parts)
+        return f"{time_str}\n{stats}" if time_str else stats
     if state == "RECORDING":
         chunk = data.get("chunk_num", "?")
         parts = [f"Chunk {chunk}"]
