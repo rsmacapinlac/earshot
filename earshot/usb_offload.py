@@ -71,11 +71,9 @@ def find_usb_mount() -> Path | None:
 
 
 def eject_usb_device(device: str) -> None:
-    """Sync buffers then power-off *device* via udisksctl.
+    """Sync buffers then unmount *device*.
 
-    Powers down the USB port so the stick LED goes dark, giving a clear
-    visual signal that it is safe to remove.  Falls back gracefully if
-    udisksctl is unavailable or the stick is already gone.
+    Falls back gracefully if the stick is already gone.
     """
     try:
         subprocess.run(["sync"], check=False, timeout=10.0)
@@ -83,14 +81,14 @@ def eject_usb_device(device: str) -> None:
         pass
     try:
         subprocess.run(
-            ["udisksctl", "power-off", "-b", device],
+            ["umount", _EARSHOT_MOUNT],
             check=True,
             timeout=15.0,
             capture_output=True,
         )
-        _log.info("Ejected %s", device)
+        _log.info("Unmounted %s", device)
     except Exception as exc:
-        _log.warning("Eject failed (stick may already be removed): %s", exc)
+        _log.warning("Unmount failed (stick may already be removed): %s", exc)
 
 
 def move_recordings_to_stick(recordings_root: Path, mount: Path) -> None:
