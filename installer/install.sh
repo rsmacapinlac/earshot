@@ -329,7 +329,7 @@ case "$CMD" in
 
     # Create sparse FAT32 image (seek= makes it sparse; no data written for count=0).
     dd if=/dev/zero of="$IMAGE" bs=1024 count=0 seek="$SIZE_KB" 2>/dev/null
-    /sbin/mkfs.fat -F 32 "$IMAGE" >/dev/null 2>&1
+    /sbin/mkfs.fat -F 32 -n EARSHOT "$IMAGE" >/dev/null 2>&1
 
     # Copy recordings into the image using mtools (no loop-mount or root needed).
     # MTOOLS_SKIP_CHECK=1 suppresses disk-geometry warnings on sparse images.
