@@ -370,10 +370,10 @@ class WhisplayDisplay(DisplayDriver):
             draw.text((12, 8), zone_a_label, fill=accent, font=self._font_large)
             # Zone B (~175px) — logo gets the bulk of the space
             draw.text((20, 55), logo_text, fill=accent, font=self._font_small)
-            # Zone C (~20px)  — primary data, near bottom
-            draw.text((12, 228), zone_c, fill=white, font=self._font_small)
-            # Zone D (~30px)  — secondary data, bottom (two lines for IDLE)
-            draw.text((12, 248), zone_d, fill=muted, font=self._font_small)
+            # Zone C — primary data
+            draw.text((12, 210), zone_c, fill=white, font=self._font_small)
+            # Zone D — secondary data (two lines for IDLE; keep above curved corners)
+            draw.text((12, 228), zone_d, fill=muted, font=self._font_small)
 
             self._device.display(img)
         except Exception as exc:
