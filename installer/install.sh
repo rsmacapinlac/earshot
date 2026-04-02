@@ -175,7 +175,8 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     libportaudiocpp0 \
     liblgpio-dev \
     python3-lgpio \
-    dosfstools
+    dosfstools \
+    mtools
 
 log "Adding $INSTALL_USER to hardware groups..."
 sudo usermod -aG audio,gpio,spi,i2c "$INSTALL_USER"
@@ -301,11 +302,11 @@ else
 #   earshot-gadget-on probe             — load g_zero to detect VBUS
 #   earshot-gadget-on activate <dir>    — create FAT32 image from <dir>, load g_mass_storage
 set -euo pipefail
+export PATH="/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
 
 CMD="${1:-activate}"
 # Use /tmp so the service user can write without root ownership issues.
 IMAGE="/tmp/earshot-recordings.img"
-MOUNT_POINT="/tmp/earshot-image"
 
 case "$CMD" in
   probe)
@@ -330,12 +331,15 @@ case "$CMD" in
     dd if=/dev/zero of="$IMAGE" bs=1024 count=0 seek="$SIZE_KB" 2>/dev/null
     /sbin/mkfs.fat -F 32 "$IMAGE" >/dev/null 2>&1
 
-    # Mount, copy recordings, unmount.  Needs CAP_SYS_ADMIN.
-    mkdir -p "$MOUNT_POINT"
-    mount -o loop "$IMAGE" "$MOUNT_POINT"
-    cp -a "$RECORDINGS_DIR"/. "$MOUNT_POINT/" 2>/dev/null || true
-    sync
-    umount "$MOUNT_POINT"
+    # Copy recordings into the image using mtools (no loop-mount or root needed).
+    # MTOOLS_SKIP_CHECK=1 suppresses disk-geometry warnings on sparse images.
+    export MTOOLS_SKIP_CHECK=1
+    for entry in "$RECORDINGS_DIR"/*/; do
+        [ -d "$entry" ] || continue
+        session_name=$(basename "$entry")
+        mmd -i "$IMAGE" "::$session_name" 2>/dev/null || true
+        mcopy -i "$IMAGE" -s "$entry"* "::$session_name/" 2>/dev/null || true
+    done
 
     # Expose the image as a USB mass storage device (read-only).
     modprobe g_mass_storage "file=$IMAGE" ro=1 removable=1
@@ -353,6 +357,7 @@ GADGETON
 # Earshot FR-12: deactivate USB gadget and clean up image.
 # Runs with CAP_SYS_MODULE inherited from the earshot service.
 set -euo pipefail
+export PATH="/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
 modprobe -r g_mass_storage 2>/dev/null || true
 modprobe -r g_zero 2>/dev/null || true
 rm -f /tmp/earshot-recordings.img
