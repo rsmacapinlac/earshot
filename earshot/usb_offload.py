@@ -71,17 +71,21 @@ def find_usb_mount() -> Path | None:
 
 
 def eject_usb_device(device: str) -> None:
-    """Sync buffers then unmount *device*.
+    """Sync buffers and stop the systemd mount service for *device*.
 
-    Falls back gracefully if the stick is already gone.
+    The earshot-usb@.service unit handles unmounting via ExecStop when
+    stopped or when the device is removed.  Falls back gracefully if the
+    service or stick is already gone.
     """
     try:
         subprocess.run(["sync"], check=False, timeout=10.0)
     except Exception:
         pass
+    # Derive the systemd instance name from the device basename (e.g. sda1).
+    instance = Path(device).name
     try:
         subprocess.run(
-            ["umount", _EARSHOT_MOUNT],
+            ["systemctl", "stop", f"earshot-usb@{instance}.service"],
             check=True,
             timeout=15.0,
             capture_output=True,

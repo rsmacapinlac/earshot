@@ -275,15 +275,33 @@ chmod 600 "$REPO_DIR/config.toml"
 # ── USB offload setup ────────────────────────────────────────────────────────
 
 if [ "$HAT" = "respeaker" ]; then
-    # FR-11: Pi 4B USB stick — udev auto-mount rule
-    log "Installing USB auto-mount rule and creating mount point..."
+    # FR-11: Pi 4B USB stick — udev triggers a systemd template service to mount.
+    # Using a systemd unit (rather than RUN{program}) ensures the device is fully
+    # ready before mount runs (BindsTo/After guarantee ordering) and handles
+    # unmount cleanly on removal via ExecStop.
+    log "Installing USB auto-mount service and udev rule..."
     sudo mkdir -p /mnt/earshot-usb
+
+    MOUNT_SERVICE="/etc/systemd/system/earshot-usb@.service"
+    cat <<SERVICE | sudo tee "$MOUNT_SERVICE" >/dev/null
+[Unit]
+Description=Mount earshot USB stick (%I)
+BindsTo=dev-%i.device
+After=dev-%i.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/mount -o uid=$INSTALL_UID,gid=$INSTALL_GID /dev/%I /mnt/earshot-usb
+ExecStop=/usr/bin/umount -l /mnt/earshot-usb
+SERVICE
+    sudo systemctl daemon-reload
+
     UDEV_RULE="/etc/udev/rules.d/99-earshot-usb.rules"
     cat <<UDEV | sudo tee "$UDEV_RULE" >/dev/null
 # Earshot: auto-mount FAT32 USB stick for recording offload (FR-11).
 # On Pi 4B, USB drives enumerate as sd*; the system SD card is mmcblk0.
-SUBSYSTEM=="block", ACTION=="add", KERNEL=="sd?[0-9]", ENV{ID_FS_TYPE}=="vfat", RUN{program}+="/usr/bin/systemd-run --no-block /usr/bin/mount -o uid=$INSTALL_UID,gid=$INSTALL_GID /dev/%k /mnt/earshot-usb"
-SUBSYSTEM=="block", ACTION=="remove", KERNEL=="sd?[0-9]", RUN{program}+="/usr/bin/umount -l /mnt/earshot-usb"
+SUBSYSTEM=="block", KERNEL=="sd?[0-9]", ENV{ID_FS_TYPE}=="vfat", TAG+="systemd", ENV{SYSTEMD_WANTS}+="earshot-usb@%k.service"
 UDEV
     sudo udevadm control --reload-rules
     info "udev rule written to $UDEV_RULE"
