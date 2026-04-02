@@ -354,20 +354,41 @@ class EarshotApp:
             encode_threads: list[threading.Thread] = []
             session_too_short = False
             chunk_num = 0
+            # Mutable cell so the timer thread always sees the current chunk.
+            _cur_chunk = [1]
+            _stop_timer = threading.Event()
+
+            def _display_timer() -> None:
+                while not _stop_timer.wait(1.0):
+                    elapsed = int(time.monotonic() - session_start)
+                    timer_str = (
+                        f"{elapsed // 3600:02d}:"
+                        f"{(elapsed % 3600) // 60:02d}:"
+                        f"{elapsed % 60:02d}"
+                    )
+                    try:
+                        hal.display.update(
+                            "RECORDING",
+                            {
+                                "chunk_num": _cur_chunk[0],
+                                "session_timer": timer_str,
+                                "disk_pct": self._disk_pct_int(),
+                            },
+                        )
+                    except Exception:
+                        pass
+
+            timer_thread = threading.Thread(
+                target=_display_timer,
+                name="earshot-rec-timer",
+                daemon=True,
+            )
+            timer_thread.start()
 
             try:
                 while True:
                     chunk_num += 1
-                    elapsed = int(time.monotonic() - session_start)
-                    session_timer = f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
-                    hal.display.update(
-                        "RECORDING",
-                        {
-                            "chunk_num": chunk_num,
-                            "session_timer": session_timer,
-                            "disk_pct": self._disk_pct_int(),
-                        },
-                    )
+                    _cur_chunk[0] = chunk_num
                     wav_name = f"recording-{chunk_num:03d}.wav"
                     opus_name = f"audio-{chunk_num:03d}.opus"
                     wav_path = session_dir / wav_name
@@ -415,6 +436,8 @@ class EarshotApp:
                     _log.info("Rolling over to chunk %d after %.0fs", chunk_num + 1, duration_s)
 
             finally:
+                _stop_timer.set()
+                timer_thread.join(timeout=2.0)
                 try:
                     audio.stop()
                 except Exception:
