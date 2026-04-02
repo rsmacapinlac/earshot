@@ -114,8 +114,7 @@ class EarshotApp:
             {
                 "disk_pct": self._disk_pct_int(),
                 "sessions_count": self._sessions_count(),
-                "time": now.strftime("%H:%M"),
-                "date": now.strftime("%a %b %-d"),
+                "time": now.strftime("%a %b %-d %-I:%M%p").replace("AM","am").replace("PM","pm"),
             },
         )
 

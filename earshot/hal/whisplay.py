@@ -398,9 +398,7 @@ def _zone_c(state: str, data: dict[str, Any]) -> str:
     if state == "BOOTING":
         return "Starting..."
     if state == "IDLE":
-        time_str = data.get("time", "--:--")
-        date_str = data.get("date", "")
-        return f"{time_str}\n{date_str}" if date_str else time_str
+        return data.get("time", "--:--")
     if state == "RECORDING":
         return data.get("session_timer", "00:00:00")
     if state in ("ENCODING", "ENCODE_FAILED"):
