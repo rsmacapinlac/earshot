@@ -103,8 +103,9 @@ if [ "$HAT" = "respeaker" ]; then
 
 else
     # Whisplay HAT: upstream WM8960 driver (different from seeed-voicecard).
-    log "Installing Whisplay WM8960 driver..."
-    sudo apt-get install -y raspberrypi-kernel-headers
+    # The WM8960 codec driver (snd_soc_wm8960) is already compiled into the
+    # Raspberry Pi kernel — no DKMS or kernel headers needed.
+    log "Configuring Whisplay WM8960 dtoverlay..."
     # The upstream WM8960 driver is enabled via dtoverlay — no custom DKMS needed.
     if [ -n "$_boot_cfg" ]; then
         if ! grep -q "dtoverlay=wm8960-soundcard" "$_boot_cfg"; then
