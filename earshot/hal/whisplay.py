@@ -366,14 +366,14 @@ class WhisplayDisplay(DisplayDriver):
             img = Image.new("RGB", (_LCD_WIDTH, _LCD_HEIGHT), bg)
             draw = ImageDraw.Draw(img)
 
-            # Zone A (~60px)  — state label
+            # Zone A (~50px)  — state label
             draw.text((12, 8), zone_a_label, fill=accent, font=self._font_large)
-            # Zone B (~120px) — logo, small font so 7 lines fit
-            draw.text((20, 65), logo_text, fill=accent, font=self._font_small)
-            # Zone C (~60px)  — primary data (font_small leaves room for two lines)
-            draw.text((12, 195), zone_c, fill=white, font=self._font_small)
-            # Zone D (~40px)  — secondary data
-            draw.text((12, 248), zone_d, fill=muted, font=self._font_small)
+            # Zone B (~175px) — logo gets the bulk of the space
+            draw.text((20, 55), logo_text, fill=accent, font=self._font_small)
+            # Zone C (~20px)  — primary data, near bottom
+            draw.text((12, 232), zone_c, fill=white, font=self._font_small)
+            # Zone D (~20px)  — secondary data, bottom
+            draw.text((12, 256), zone_d, fill=muted, font=self._font_small)
 
             self._device.display(img)
         except Exception as exc:
@@ -398,7 +398,7 @@ def _zone_c(state: str, data: dict[str, Any]) -> str:
     if state == "BOOTING":
         return "Starting..."
     if state == "IDLE":
-        return data.get("time", "--:--")
+        return ""  # datetime lives in Zone D for IDLE
     if state == "RECORDING":
         return data.get("session_timer", "00:00:00")
     if state in ("ENCODING", "ENCODE_FAILED"):
@@ -424,6 +424,9 @@ def _zone_d(state: str, data: dict[str, Any]) -> str:
 
     if state == "IDLE":
         parts = []
+        time_str = data.get("time", "")
+        if time_str:
+            parts.append(time_str)
         if sessions is not None:
             parts.append(f"{sessions} sessions")
         if disk_pct is not None:
