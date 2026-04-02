@@ -282,7 +282,7 @@ if [ "$HAT" = "respeaker" ]; then
     cat <<UDEV | sudo tee "$UDEV_RULE" >/dev/null
 # Earshot: auto-mount FAT32 USB stick for recording offload (FR-11).
 # On Pi 4B, USB drives enumerate as sd*; the system SD card is mmcblk0.
-SUBSYSTEM=="block", ACTION=="add", KERNEL=="sd?[0-9]", ENV{ID_FS_TYPE}=="vfat", RUN{program}+="/usr/bin/mount -o uid=$INSTALL_UID,gid=$INSTALL_GID /dev/%k /mnt/earshot-usb"
+SUBSYSTEM=="block", ACTION=="add", KERNEL=="sd?[0-9]", ENV{ID_FS_TYPE}=="vfat", RUN{program}+="/usr/bin/systemd-run --no-block /usr/bin/mount -o uid=$INSTALL_UID,gid=$INSTALL_GID /dev/%k /mnt/earshot-usb"
 SUBSYSTEM=="block", ACTION=="remove", KERNEL=="sd?[0-9]", RUN{program}+="/usr/bin/umount -l /mnt/earshot-usb"
 UDEV
     sudo udevadm control --reload-rules

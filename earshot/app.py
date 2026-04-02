@@ -73,9 +73,11 @@ class EarshotApp:
         )
         usb_thread.start()
 
-        # FR-12: Pi Zero 2W USB gadget mode — only active when VBUS sysfs path exists.
-        gadget = GadgetOffload(recordings_root(cfg))
-        gadget.start()
+        # FR-12: Pi Zero 2W USB gadget mode — only on whisplay (Zero 2W) hardware.
+        gadget = None
+        if cfg.hardware.hat == "whisplay":
+            gadget = GadgetOffload(recordings_root(cfg))
+            gadget.start()
         self._gadget = gadget
 
         try:
@@ -83,7 +85,8 @@ class EarshotApp:
         finally:
             self._usb_stop.set()
             usb_thread.join(timeout=5.0)
-            gadget.stop()
+            if gadget is not None:
+                gadget.stop()
             hal.close()
 
     def _disk_blocked(self) -> bool:
