@@ -614,10 +614,18 @@ class EarshotApp:
             {"sessions_label": sessions_label, "disk_pct": self._disk_pct_int()},
         )
 
-        info = find_usb_device()
-        mount = Path(info[1]) if (info and info[1]) else None
+        # Wait up to 10 s for the systemd mount service to finish.
+        info = None
+        mount = None
+        for _ in range(20):
+            info = find_usb_device()
+            if info and info[1]:
+                mount = Path(info[1])
+                break
+            time.sleep(0.5)
+
         if mount is None:
-            _log.warning("USB stick not mounted — skipping offload")
+            _log.warning("USB stick not mounted after waiting — skipping offload")
             self._usb_stick_pending.clear()
             self._set_idle_led(self._disk_blocked())
             return
