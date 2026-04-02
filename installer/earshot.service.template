@@ -34,6 +34,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ReadWritePaths=__INSTALL_HOME__/earshot
+# Allow the service to trigger system poweroff (button hold shutdown).
+AmbientCapabilities=CAP_SYS_BOOT
 
 # Ensure log output is not buffered so `journalctl -f` shows output in real time
 Environment=PYTHONUNBUFFERED=1

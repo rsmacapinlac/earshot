@@ -598,7 +598,4 @@ class EarshotApp:
         if hal.animator is not None:
             hal.animator.run_fade_off(2.0)
         _log.info("requesting system poweroff")
-        subprocess.run(
-            ["/usr/bin/sudo", "-n", "/sbin/poweroff"],
-            check=False,
-        )
+        subprocess.run(["/sbin/poweroff"], check=False)
