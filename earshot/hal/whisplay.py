@@ -292,6 +292,7 @@ class WhisplayDisplay(DisplayDriver):
         self._lock = threading.Lock()
         self._font_large = None
         self._font_medium = None
+        self._font_logo = None
         self._font_small = None
         self._init()
 
@@ -327,6 +328,7 @@ class WhisplayDisplay(DisplayDriver):
             try:
                 self._font_large = ImageFont.truetype(path, 28)
                 self._font_medium = ImageFont.truetype(path, 20)
+                self._font_logo = ImageFont.truetype(path, 18)
                 self._font_small = ImageFont.truetype(path, 14)
                 _log.debug("Loaded font: %s", path)
                 return
@@ -336,6 +338,7 @@ class WhisplayDisplay(DisplayDriver):
         default = ImageFont.load_default()
         self._font_large = default
         self._font_medium = default
+        self._font_logo = default
         self._font_small = default
         _log.debug("Using PIL default font")
 
@@ -368,8 +371,8 @@ class WhisplayDisplay(DisplayDriver):
 
             # Zone A (~50px)  — state label
             draw.text((12, 8), zone_a_label, fill=accent, font=self._font_large)
-            # Zone B (~175px) — logo gets the bulk of the space
-            draw.text((20, 55), logo_text, fill=accent, font=self._font_small)
+            # Zone B (~155px, y=55–210) — logo fills the space at 18pt (~22px/line × 7)
+            draw.text((20, 55), logo_text, fill=accent, font=self._font_logo)
             # Zone C — primary data
             draw.text((12, 210), zone_c, fill=white, font=self._font_small)
             # Zone D — secondary data (two lines for IDLE; keep above curved corners)
