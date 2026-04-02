@@ -341,8 +341,9 @@ case "$CMD" in
         mcopy -i "$IMAGE" -s "$entry"* "::$session_name/" 2>/dev/null || true
     done
 
-    # Expose the image as a USB mass storage device (read-only).
-    modprobe g_mass_storage "file=$IMAGE" ro=1 removable=1
+    # Expose the image as a USB mass storage device (read-write so the user
+    # can delete sessions on the laptop; deletions are synced back on disconnect).
+    modprobe g_mass_storage "file=$IMAGE" ro=0 removable=1
     ;;
 
   *)

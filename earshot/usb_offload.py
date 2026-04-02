@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import logging
+import os
 import shutil
 import subprocess
 import threading
@@ -14,6 +15,9 @@ _log = logging.getLogger(__name__)
 
 # Mount point written by the udev rule installed by the earshot installer.
 _EARSHOT_MOUNT = Path("/mnt/earshot-usb")
+
+# Transient FAT32 image backing g_mass_storage (written by earshot-gadget-on).
+_GADGET_IMAGE = Path("/tmp/earshot-recordings.img")
 
 # UDC sysfs state path (Pi Zero 2W DWC2 OTG controller).
 # Exposes connection state: "not attached" | "attached" | "default" | "addressed" | "configured".
@@ -216,10 +220,59 @@ class GadgetOffload:
 
     # ── internals ─────────────────────────────────────────────────────────────
 
+    def _sync_deletions(self) -> None:
+        """Mirror file deletions from the gadget image back to the Pi.
+
+        The image was a read-write snapshot of the recordings directory.  When
+        the user deletes session folders on the laptop, those deletions are
+        reflected in the FAT32 image.  Before unloading g_mass_storage, read
+        the image with ``mdir`` and remove any session that was exported but is
+        no longer present in the image.
+        """
+        if not _GADGET_IMAGE.exists():
+            return
+        try:
+            env = {**os.environ, "MTOOLS_SKIP_CHECK": "1"}
+            result = subprocess.run(
+                ["mdir", "-b", "-i", str(_GADGET_IMAGE), "::"],
+                capture_output=True,
+                text=True,
+                timeout=10.0,
+                env=env,
+            )
+            # mdir -b output: one path per line, e.g. "/20260402T101613"
+            image_sessions: set[str] = set()
+            for line in result.stdout.splitlines():
+                name = line.strip().lstrip("/").rstrip("/").upper()
+                if name:
+                    image_sessions.add(name)
+        except Exception as exc:
+            _log.warning("gadget: sync: mdir failed — skipping deletion sync: %s", exc)
+            return
+
+        if not self._recordings_dir.exists():
+            return
+
+        removed = 0
+        for session_dir in sorted(self._recordings_dir.iterdir()):
+            if not session_dir.is_dir():
+                continue
+            if session_dir.name.upper() not in image_sessions:
+                _log.info("gadget: sync: removing %s (deleted on laptop)", session_dir.name)
+                shutil.rmtree(session_dir, ignore_errors=True)
+                removed += 1
+
+        if removed:
+            _log.info("gadget: sync: %d session(s) removed from Pi", removed)
+        else:
+            _log.debug("gadget: sync: no deletions detected")
+
     def _deactivate(self) -> None:
         with self._lock:
             if not self._active:
                 return
+        # Sync deletions before unloading the module (image must be accessible).
+        self._sync_deletions()
         try:
             subprocess.run(
                 ["/usr/local/bin/earshot-gadget-off"],

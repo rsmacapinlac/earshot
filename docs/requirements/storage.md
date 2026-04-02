@@ -76,13 +76,15 @@ Allows a user to retrieve recordings by plugging a micro-USB OTG cable from the 
 - On offload start:
   1. A sparse FAT32 image (`/tmp/earshot-recordings.img`) is created, sized to the current recordings content.
   2. All session directories are copied into the image using `mtools` (no root or loop-mount required).
-  3. The `g_mass_storage` kernel module is loaded with the image as its backing file (read-only, volume label `EARSHOT`).
+  3. The `g_mass_storage` kernel module is loaded with the image as its backing file (**read-write**, volume label `EARSHOT`).
   4. The LED pulsates **blue** (slow).
-  5. The laptop sees a standard USB mass storage device — no drivers or software required.
+  5. The laptop sees a standard USB mass storage device — no drivers or software required. Sessions can be deleted from the laptop.
 - On disconnection:
-  1. `g_mass_storage` is unloaded and the image file is deleted.
-  2. The `g_zero` probe is reloaded, ready for the next connection.
-  3. The device returns to idle state (FR-1).
+  1. The image is scanned with `mdir` to find which session directories remain.
+  2. Any session that was exported but is no longer present in the image (deleted on the laptop) is deleted from the Pi's recordings directory.
+  3. `g_mass_storage` is unloaded and the image file is deleted.
+  4. The `g_zero` probe is reloaded, ready for the next connection.
+  5. The device returns to idle state (FR-1).
 
 ### Prerequisites
 
@@ -95,4 +97,5 @@ Allows a user to retrieve recordings by plugging a micro-USB OTG cable from the 
 
 - The device does not record while in active offload mode (once `g_mass_storage` is loaded). If the user presses the button to record, the gadget is deactivated first.
 - The USB volume is a **snapshot** of recordings at the time the cable was connected. Files recorded after connection are not visible until the next connection.
+- Deletions made on the laptop are synced back to the Pi on disconnect — deleting a session folder on the laptop causes it to be removed from the Pi after the cable is unplugged.
 - The user must safely eject the drive on the laptop before unplugging to avoid filesystem corruption.
