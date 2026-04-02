@@ -116,6 +116,16 @@ else
         else
             info "dtoverlay=wm8960-soundcard already present."
         fi
+        # Enable SPI (required for the ST7789 LCD via luma.lcd).
+        if grep -q "^#dtparam=spi=on" "$_boot_cfg"; then
+            log "Enabling SPI (uncommenting dtparam=spi=on)..."
+            sudo sed -i "s/^#dtparam=spi=on/dtparam=spi=on/" "$_boot_cfg"
+        elif ! grep -q "^dtparam=spi=on" "$_boot_cfg"; then
+            log "Adding dtparam=spi=on to $_boot_cfg..."
+            echo "dtparam=spi=on" | sudo tee -a "$_boot_cfg" >/dev/null
+        else
+            info "dtparam=spi=on already present."
+        fi
         # Pi Zero 2W: enable OTG gadget mode (FR-12).
         # Check only in [all] section — the [cm5] section may have dwc2,dr_mode=host
         # which only applies to CM5 and must not suppress the Zero's dwc2 entry.
@@ -127,6 +137,22 @@ else
         fi
     else
         err "Could not find Pi boot config.txt — add 'dtoverlay=wm8960-soundcard' manually."
+    fi
+
+    # Pi Zero 2W: load dwc2 module at boot for USB gadget mode (FR-12).
+    _cmdline=""
+    for _f in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
+        [ -f "$_f" ] && _cmdline="$_f" && break
+    done
+    if [ -n "$_cmdline" ]; then
+        if ! grep -q "modules-load=dwc2" "$_cmdline"; then
+            log "Adding modules-load=dwc2 to $_cmdline..."
+            sudo sed -i 's/$/ modules-load=dwc2/' "$_cmdline"
+        else
+            info "modules-load=dwc2 already present in $_cmdline."
+        fi
+    else
+        err "Could not find cmdline.txt — add 'modules-load=dwc2' to kernel cmdline manually."
     fi
 
     ALSA_PCM="plughw:CARD=wm8960soundcard,DEV=0"
@@ -141,11 +167,14 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3-pip \
     python3-dev \
     build-essential \
+    swig \
     ffmpeg \
     libasound2-dev \
     portaudio19-dev \
     libportaudio2 \
-    libportaudiocpp0
+    libportaudiocpp0 \
+    liblgpio-dev \
+    python3-lgpio
 
 log "Adding $INSTALL_USER to hardware groups..."
 sudo usermod -aG audio,gpio,spi,i2c "$INSTALL_USER"
