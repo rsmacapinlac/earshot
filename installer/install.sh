@@ -174,7 +174,8 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
     libportaudio2 \
     libportaudiocpp0 \
     liblgpio-dev \
-    python3-lgpio
+    python3-lgpio \
+    dosfstools
 
 log "Adding $INSTALL_USER to hardware groups..."
 sudo usermod -aG audio,gpio,spi,i2c "$INSTALL_USER"
@@ -290,21 +291,71 @@ else
     # We install helpers to /usr/local/bin so sudoers can reference fixed absolute
     # paths with no wildcards (Debian Trixie visudo rejects wildcard mount args).
     log "Installing USB gadget helper scripts..."
+
+    # Storage dir for the transient FAT32 image used by g_mass_storage.
+    sudo mkdir -p /var/lib/earshot
+
     sudo install -m 755 /dev/stdin /usr/local/bin/earshot-gadget-on <<'GADGETON'
 #!/bin/bash
-# Earshot FR-12: activate USB mass storage gadget.
+# Earshot FR-12: USB gadget helper — probe detection and mass-storage activation.
+#
+# Usage:
+#   earshot-gadget-on probe          — load g_zero to detect VBUS
+#   earshot-gadget-on activate <dir> — create FAT32 image from <dir>, load g_mass_storage
 set -euo pipefail
-RECORDINGS_DIR="${1:?recordings dir required}"
-/usr/bin/mount -o remount,ro "$RECORDINGS_DIR"
-/usr/sbin/modprobe g_mass_storage "file=$RECORDINGS_DIR" ro=1 removable=1
+
+CMD="${1:-activate}"
+IMAGE="/var/lib/earshot/recordings.img"
+
+case "$CMD" in
+  probe)
+    # Load a minimal gadget so the UDC can report VBUS / host connection state.
+    /usr/sbin/modprobe g_zero 2>/dev/null || true
+    ;;
+
+  activate)
+    RECORDINGS_DIR="${2:?recordings dir required for activate}"
+
+    # Calculate required image size: recordings content + 20 % margin, min 32 MB.
+    USED_KB=$(du -sk "$RECORDINGS_DIR" 2>/dev/null | awk '{print $1}')
+    USED_KB=${USED_KB:-0}
+    SIZE_KB=$(( (USED_KB * 12 / 10) + 32768 ))   # +20% then +32 MB floor
+    [ "$SIZE_KB" -lt 32768 ] && SIZE_KB=32768
+
+    # Unload probe gadget if still present.
+    /usr/sbin/modprobe -r g_zero 2>/dev/null || true
+
+    # Create sparse FAT32 image (seek= makes it sparse; no data written).
+    mkdir -p "$(dirname "$IMAGE")"
+    dd if=/dev/zero of="$IMAGE" bs=1024 count=0 seek="$SIZE_KB" 2>/dev/null
+    /sbin/mkfs.fat -F 32 "$IMAGE" >/dev/null 2>&1
+
+    # Mount, copy recordings, unmount.
+    MOUNT_POINT="/mnt/earshot-image"
+    mkdir -p "$MOUNT_POINT"
+    mount -o loop "$IMAGE" "$MOUNT_POINT"
+    cp -a "$RECORDINGS_DIR"/. "$MOUNT_POINT/" 2>/dev/null || true
+    sync
+    umount "$MOUNT_POINT"
+
+    # Expose the image as a USB mass storage device (read-only).
+    /usr/sbin/modprobe g_mass_storage "file=$IMAGE" ro=1 removable=1
+    ;;
+
+  *)
+    echo "Usage: $0 {probe|activate <recordings-dir>}" >&2
+    exit 1
+    ;;
+esac
 GADGETON
+
     sudo install -m 755 /dev/stdin /usr/local/bin/earshot-gadget-off <<'GADGETOFF'
 #!/bin/bash
-# Earshot FR-12: deactivate USB mass storage gadget.
+# Earshot FR-12: deactivate USB gadget and clean up image.
 set -euo pipefail
-RECORDINGS_DIR="${1:?recordings dir required}"
-/usr/sbin/modprobe -r g_mass_storage || true
-/usr/bin/mount -o remount,rw "$RECORDINGS_DIR" || true
+/usr/sbin/modprobe -r g_mass_storage 2>/dev/null || true
+/usr/sbin/modprobe -r g_zero 2>/dev/null || true
+rm -f /var/lib/earshot/recordings.img
 GADGETOFF
 
     log "Installing sudoers rules for USB gadget mode..."

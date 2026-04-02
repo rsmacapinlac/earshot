@@ -15,6 +15,18 @@ _log = logging.getLogger(__name__)
 # Mount point written by the udev rule installed by the earshot installer.
 _EARSHOT_MOUNT = Path("/mnt/earshot-usb")
 
+# UDC sysfs state path (Pi Zero 2W DWC2 OTG controller).
+# Exposes connection state: "not attached" | "attached" | "default" | "addressed" | "configured".
+_UDC_STATE_PATH = Path("/sys/class/udc/3f980000.usb/state")
+
+
+def _udc_state() -> str:
+    """Read the current UDC connection state, or 'unavailable' on error."""
+    try:
+        return _UDC_STATE_PATH.read_text().strip()
+    except OSError:
+        return "unavailable"
+
 
 def find_usb_device() -> tuple[str, str | None] | None:
     """Return ``(device_path, mountpoint_or_None)`` for the first removable vfat
@@ -133,6 +145,11 @@ class GadgetOffload:
         self._active = False
         self._lock = threading.Lock()
         self.pending = threading.Event()
+        # Set when a USB host has actually enumerated the gadget (UDC → configured).
+        # Distinct from ``pending`` (which fires on VBUS / cable-detect) so the
+        # app can show IDLE while g_mass_storage is loading and TRANSFER only
+        # once the laptop actually sees the drive.
+        self.host_connected = threading.Event()
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -162,16 +179,23 @@ class GadgetOffload:
             return self._active
 
     def activate(self) -> bool:
-        """Remount read-only and load g_mass_storage.  Returns True on success."""
+        """Create a FAT32 image of the recordings dir and load g_mass_storage.
+
+        On Pi Zero 2W the helper script (earshot-gadget-on activate) builds a
+        sparse FAT32 image, copies recordings into it, then loads g_mass_storage
+        backed by that image (read-only).  The image approach avoids remounting
+        the live recordings directory read-only, so new recordings can proceed
+        once the gadget is deactivated.
+        """
         with self._lock:
             if self._active:
                 return True
         self._recordings_dir.mkdir(parents=True, exist_ok=True)
         try:
             subprocess.run(
-                ["sudo", "/usr/local/bin/earshot-gadget-on", str(self._recordings_dir)],
+                ["sudo", "/usr/local/bin/earshot-gadget-on", "activate", str(self._recordings_dir)],
                 check=True,
-                timeout=20.0,
+                timeout=120.0,  # image creation + copy may take a while for large recordings
                 capture_output=True,
             )
         except subprocess.CalledProcessError as exc:
@@ -183,11 +207,11 @@ class GadgetOffload:
 
         with self._lock:
             self._active = True
-        _log.info("gadget: g_mass_storage active — recordings exposed to host")
+        _log.info("gadget: g_mass_storage active — waiting for host connection")
         return True
 
     def deactivate(self) -> None:
-        """Unload g_mass_storage and restore read-write mount."""
+        """Unload g_mass_storage and clean up the recordings image."""
         self._deactivate()
 
     # ── internals ─────────────────────────────────────────────────────────────
@@ -198,7 +222,7 @@ class GadgetOffload:
                 return
         try:
             subprocess.run(
-                ["sudo", "/usr/local/bin/earshot-gadget-off", str(self._recordings_dir)],
+                ["sudo", "/usr/local/bin/earshot-gadget-off"],
                 check=False,
                 timeout=15.0,
                 capture_output=True,
@@ -207,28 +231,74 @@ class GadgetOffload:
             _log.warning("gadget: earshot-gadget-off failed: %s", exc)
         with self._lock:
             self._active = False
-        _log.info("gadget: disconnected — recordings read-write restored")
+        self.host_connected.clear()
+        _log.info("gadget: disconnected")
 
-    def _vbus_present(self) -> bool:
-        """Return True if a USB host is providing VBUS (5V) on the OTG port."""
+    def _direct_vbus(self) -> bool:
+        """Return True if VBUS is readable via power_supply sysfs (Pi 4B path)."""
         try:
             return _VBUS_PATH.read_text().strip() == "1"
         except OSError:
             return False
 
     def _monitor_loop(self) -> None:
-        was_connected = False
+        """Detect USB host connection and manage the gadget lifecycle.
+
+        On Pi 4B the power_supply sysfs path gives VBUS directly.
+        On Pi Zero 2W that path is absent, so we load the lightweight ``g_zero``
+        probe gadget which allows the UDC to report connection state; once the
+        host enumerates it we swap in ``g_mass_storage`` via the activate path.
+        """
+        probe_loaded = False
+
         while not self._stop_event.wait(2.0):
-            now_connected = self._vbus_present()
-            if now_connected and not was_connected:
-                _log.info("gadget: USB host connected")
-                self.pending.set()  # caller activates when session allows
-            elif not now_connected and was_connected:
-                _log.info("gadget: USB host disconnected")
-                self.pending.clear()
-                if self._active:
+            with self._lock:
+                active = self._active
+
+            if active:
+                # Post-activation: watch UDC state for actual host connect/disconnect.
+                udc = _udc_state()
+                connected = udc in ("configured", "addressed")
+                if connected and not self.host_connected.is_set():
+                    _log.info("gadget: USB host enumerated (UDC=%s)", udc)
+                    self.host_connected.set()
+                elif not connected and self.host_connected.is_set():
+                    _log.info("gadget: USB host disconnected (UDC=%s)", udc)
+                    self.host_connected.clear()
+                    self.pending.clear()
                     self._deactivate()
-            was_connected = now_connected
+                    probe_loaded = False  # probe was cleared by earshot-gadget-off
+
+            else:
+                # Pre-activation: detect cable insertion.
+
+                # Pi 4B: direct VBUS sysfs path.
+                if self._direct_vbus():
+                    if not self.pending.is_set():
+                        _log.info("gadget: VBUS detected via power_supply sysfs")
+                        self.pending.set()
+                    continue
+
+                # Pi Zero 2W: load g_zero probe so the UDC can report state.
+                if not probe_loaded:
+                    try:
+                        subprocess.run(
+                            ["sudo", "/usr/local/bin/earshot-gadget-on", "probe"],
+                            check=True,
+                            capture_output=True,
+                            timeout=5.0,
+                        )
+                        probe_loaded = True
+                        _log.debug("gadget: g_zero probe loaded")
+                    except Exception as exc:
+                        _log.debug("gadget: g_zero probe failed: %s", exc)
+                    continue
+
+                # Probe loaded — check if a host has connected.
+                if _udc_state() in ("configured", "addressed") and not self.pending.is_set():
+                    _log.info("gadget: VBUS detected via g_zero probe")
+                    self.pending.set()
+                    # g_zero stays loaded; earshot-gadget-on activate will swap it out.
 
 
 def _move_session(src: Path, dest: Path) -> None:

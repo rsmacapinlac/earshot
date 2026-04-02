@@ -133,15 +133,22 @@ class EarshotApp:
                 self._usb_offload()
                 continue
 
-            # USB gadget: host connected while idle → activate mass storage.
+            # USB gadget: cable detected → load g_mass_storage, wait for host.
             if self._gadget is not None and self._gadget.pending.is_set() and not self._gadget.is_active:
-                hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
-                hal.display.update("USB_TRANSFER", {"sessions_label": f"{self._sessions_count()} sessions"})
                 if self._gadget.activate():
-                    # Stay in gadget mode until host disconnects (pending cleared by monitor).
+                    # g_mass_storage is loaded; wait for the host to enumerate.
+                    # Show IDLE while waiting, TRANSFER once the host connects.
                     while self._gadget.is_active and not self._usb_stop.is_set():
                         if not self._gadget.pending.is_set():
-                            break
+                            break  # host disconnected → monitor deactivated
+                        if self._gadget.host_connected.is_set():
+                            hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+                            hal.display.update(
+                                "USB_TRANSFER",
+                                {"sessions_label": f"{self._sessions_count()} sessions"},
+                            )
+                        else:
+                            self._set_idle_led(False)  # loaded but no host yet
                         time.sleep(0.5)
                 self._set_idle_led(self._disk_blocked())
                 continue
@@ -159,6 +166,10 @@ class EarshotApp:
             if self._disk_blocked():
                 continue
 
+            # If USB gadget is active (cable connected), deactivate before recording.
+            if self._gadget is not None and self._gadget.is_active:
+                self._gadget.deactivate()
+
             self._recording_session()
 
             # USB stick was inserted during recording → offload now that session is done.
@@ -168,12 +179,18 @@ class EarshotApp:
             elif self._gadget is not None and self._gadget.pending.is_set() and not self._gadget.is_active:
                 hal = self._hal
                 assert hal is not None
-                hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
-                hal.display.update("USB_TRANSFER", {"sessions_label": f"{self._sessions_count()} sessions"})
                 if self._gadget.activate():
                     while self._gadget.is_active and not self._usb_stop.is_set():
                         if not self._gadget.pending.is_set():
                             break
+                        if self._gadget.host_connected.is_set():
+                            hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+                            hal.display.update(
+                                "USB_TRANSFER",
+                                {"sessions_label": f"{self._sessions_count()} sessions"},
+                            )
+                        else:
+                            self._set_idle_led(False)
                         time.sleep(0.5)
                 self._set_idle_led(self._disk_blocked())
 
