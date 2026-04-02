@@ -17,6 +17,7 @@ from earshot.hal import Hal, LedPattern, create_hal
 from earshot.hal.effects import flash_double_green, flash_fast_red_three_times, flash_single_blue
 from earshot.recording import StereoWavWriter, wav_to_opus_mono
 from earshot.storage import (
+    disk_usage_percent,
     is_over_disk_threshold,
     new_recording_stamp,
     recording_directory,
@@ -53,6 +54,7 @@ class EarshotApp:
         hal = self._hal
 
         hal.led.set_colour_and_pattern(255, 255, 255, LedPattern.SLOW_PULSE)
+        hal.display.update("BOOTING", {})
 
         # Recover any WAV files left behind by a previous crash (NFR-2).
         self._recover_orphaned_wavs()
@@ -90,6 +92,15 @@ class EarshotApp:
             self._cfg.storage.disk_threshold_percent,
         )
 
+    def _disk_pct_int(self) -> int:
+        return round(disk_usage_percent(recordings_root(self._cfg)))
+
+    def _sessions_count(self) -> int:
+        root = recordings_root(self._cfg)
+        if not root.exists():
+            return 0
+        return sum(1 for d in root.iterdir() if d.is_dir())
+
     def _set_idle_led(self, disk_blocked: bool) -> None:
         hal = self._hal
         assert hal is not None
@@ -97,13 +108,23 @@ class EarshotApp:
             hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
         else:
             hal.led.set_colour_and_pattern(0, 255, 0, LedPattern.SOLID)
+        hal.display.update(
+            "IDLE",
+            {
+                "disk_pct": self._disk_pct_int(),
+                "sessions_count": self._sessions_count(),
+                "time": datetime.now().strftime("%H:%M"),
+            },
+        )
 
     def _main_loop(self) -> None:
         hal = self._hal
         assert hal is not None
         while True:
             while self._disk_blocked():
+                disk_pct = self._disk_pct_int()
                 hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
+                hal.display.update("DISK_FULL", {"disk_pct": disk_pct})
                 time.sleep(0.5)
 
             # USB stick inserted while idle → offload immediately.
@@ -114,6 +135,7 @@ class EarshotApp:
             # USB gadget: host connected while idle → activate mass storage.
             if self._gadget is not None and self._gadget.pending.is_set() and not self._gadget.is_active:
                 hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+                hal.display.update("USB_TRANSFER", {"sessions_label": f"{self._sessions_count()} sessions"})
                 if self._gadget.activate():
                     # Stay in gadget mode until host disconnects (pending cleared by monitor).
                     while self._gadget.is_active and not self._usb_stop.is_set():
@@ -146,6 +168,7 @@ class EarshotApp:
                 hal = self._hal
                 assert hal is not None
                 hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+                hal.display.update("USB_TRANSFER", {"sessions_label": f"{self._sessions_count()} sessions"})
                 if self._gadget.activate():
                     while self._gadget.is_active and not self._usb_stop.is_set():
                         if not self._gadget.pending.is_set():
@@ -315,6 +338,7 @@ class EarshotApp:
         session_stamp = new_recording_stamp()
         session_dir = recording_directory(cfg, session_stamp)
         session_dir.mkdir(parents=True, exist_ok=True)
+        session_start = time.monotonic()
 
         try:
             audio = hal.new_audio_capture()
@@ -334,6 +358,16 @@ class EarshotApp:
             try:
                 while True:
                     chunk_num += 1
+                    elapsed = int(time.monotonic() - session_start)
+                    session_timer = f"{elapsed // 3600:02d}:{(elapsed % 3600) // 60:02d}:{elapsed % 60:02d}"
+                    hal.display.update(
+                        "RECORDING",
+                        {
+                            "chunk_num": chunk_num,
+                            "session_timer": session_timer,
+                            "disk_pct": self._disk_pct_int(),
+                        },
+                    )
                     wav_name = f"recording-{chunk_num:03d}.wav"
                     opus_name = f"audio-{chunk_num:03d}.opus"
                     wav_path = session_dir / wav_name
@@ -395,10 +429,22 @@ class EarshotApp:
 
             if encode_threads:
                 hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+                hal.display.update(
+                    "ENCODING",
+                    {
+                        "chunk_num": chunk_num,
+                        "total_chunks": chunk_num,
+                        "disk_pct": self._disk_pct_int(),
+                    },
+                )
                 for t in encode_threads:
                     t.join()
 
             if self._encode_failure.is_set():
+                hal.display.update(
+                    "ENCODE_FAILED",
+                    {"chunk_num": chunk_num, "total_chunks": chunk_num},
+                )
                 flash_fast_red_three_times(hal)
 
             # Remove session dir if encoding left nothing behind.
@@ -504,7 +550,12 @@ class EarshotApp:
         hal = self._hal
         assert hal is not None
 
+        sessions_label = f"{self._sessions_count()} sessions"
         hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
+        hal.display.update(
+            "USB_TRANSFER",
+            {"sessions_label": sessions_label, "disk_pct": self._disk_pct_int()},
+        )
 
         info = find_usb_device()
         mount = Path(info[1]) if (info and info[1]) else None
@@ -520,14 +571,18 @@ class EarshotApp:
         except OSError as exc:
             if exc.errno == errno.ENOSPC:
                 _log.error("USB stick full — some recordings remain on device")
+                error_reason = "Stick full"
             else:
                 _log.error("USB offload error: %s", exc)
+                error_reason = str(exc)
             self._usb_error.set()
             hal.led.set_colour_and_pattern(255, 128, 0, LedPattern.SLOW_PULSE)
+            hal.display.update("USB_TRANSFER_ERROR", {"error_reason": error_reason})
             return
 
         eject_usb_device(device)
         _log.info("USB offload complete")
+        hal.display.update("USB_TRANSFER_COMPLETE", {})
         flash_single_blue(hal)
         self._usb_stick_pending.clear()
         self._set_idle_led(self._disk_blocked())
@@ -538,6 +593,7 @@ class EarshotApp:
         hal = self._hal
         assert hal is not None
         hal.led.set_colour_and_pattern(255, 255, 255, LedPattern.SLOW_PULSE)
+        hal.display.update("SHUTDOWN", {})
         time.sleep(1.0)
         if hal.animator is not None:
             hal.animator.run_fade_off(2.0)
