@@ -88,7 +88,8 @@ def _pi_hal(cfg: AppConfig, hat: str) -> Hal:
     from earshot.hal.animator import LedAnimator
     from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton
 
-    button = PiButton()
+    # Whisplay button is active-high (pull-down); ReSpeaker is active-low (pull-up).
+    button = PiButton(active_high=(hat == "whisplay"))
     device_index = cfg.audio.input_device_index
     alsa_pcm = cfg.audio.alsa_pcm
 

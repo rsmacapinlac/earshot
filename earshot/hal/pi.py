@@ -73,22 +73,28 @@ class PiLED(LEDDriver):
 
 
 class PiButton(ButtonDriver):
-    def __init__(self) -> None:
+    def __init__(self, active_high: bool = False) -> None:
         import RPi.GPIO as GPIO  # type: ignore[import-untyped]
 
         self._GPIO = GPIO
+        self._active_high = active_high
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(_BUTTON_GPIO_BCM, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        pull = GPIO.PUD_DOWN if active_high else GPIO.PUD_UP
+        GPIO.setup(_BUTTON_GPIO_BCM, GPIO.IN, pull_up_down=pull)
         raw = GPIO.input(_BUTTON_GPIO_BCM)
         _log.info(
-            "Button on GPIO%d (pull-up, active-low): initial line reads %s",
+            "Button on GPIO%d (%s): initial line reads %s",
             _BUTTON_GPIO_BCM,
-            "LOW — button appears pressed; release it for idle" if raw == GPIO.LOW else "HIGH — not pressed",
+            "pull-down, active-high" if active_high else "pull-up, active-low",
+            "HIGH — button appears pressed; release it for idle"
+            if (raw == GPIO.HIGH) == active_high
+            else "LOW — not pressed" if not active_high else "LOW — not pressed",
         )
 
     def pressed(self) -> bool:
-        return self._GPIO.input(_BUTTON_GPIO_BCM) == self._GPIO.LOW
+        val = self._GPIO.input(_BUTTON_GPIO_BCM)
+        return (val == self._GPIO.HIGH) if self._active_high else (val == self._GPIO.LOW)
 
     def close(self) -> None:
         self._GPIO.cleanup()
