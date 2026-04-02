@@ -116,12 +116,14 @@ else
         else
             info "dtoverlay=wm8960-soundcard already present."
         fi
-        # Pi Zero 2W: enable OTG gadget mode (FR-12)
-        if ! grep -q "dtoverlay=dwc2" "$_boot_cfg"; then
+        # Pi Zero 2W: enable OTG gadget mode (FR-12).
+        # Check only in [all] section — the [cm5] section may have dwc2,dr_mode=host
+        # which only applies to CM5 and must not suppress the Zero's dwc2 entry.
+        if ! awk "/^\[all\]/,/^\[/" "$_boot_cfg" | grep -q "dtoverlay=dwc2"; then
             log "Adding dtoverlay=dwc2 (USB gadget mode) to $_boot_cfg..."
-            echo "dtoverlay=dwc2" | sudo tee -a "$_boot_cfg" >/dev/null
+            sudo sed -i "/^\[all\]/a dtoverlay=dwc2" "$_boot_cfg"
         else
-            info "dtoverlay=dwc2 already present."
+            info "dtoverlay=dwc2 already present in [all] section."
         fi
     else
         err "Could not find Pi boot config.txt — add 'dtoverlay=wm8960-soundcard' manually."
