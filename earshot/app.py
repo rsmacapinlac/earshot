@@ -206,14 +206,25 @@ class EarshotApp:
         def _usb_wants_offload() -> bool:
             return self._usb_stick_pending.is_set() and not self._usb_error.is_set()
 
+        def _gadget_wants_activate() -> bool:
+            return (
+                self._gadget is not None
+                and self._gadget.pending.is_set()
+                and not self._gadget.is_active
+            )
+
         while True:
             if _usb_wants_offload():
                 return "usb"
+            if _gadget_wants_activate():
+                return "gadget"
 
             # Wait for a stable released state.
             while True:
                 if _usb_wants_offload():
                     return "usb"
+                if _gadget_wants_activate():
+                    return "gadget"
                 if not hal.button.pressed():
                     time.sleep(poll_s)
                     if not hal.button.pressed():
@@ -233,6 +244,8 @@ class EarshotApp:
             while not hal.button.pressed():
                 if _usb_wants_offload():
                     return "usb"
+                if _gadget_wants_activate():
+                    return "gadget"
                 time.sleep(poll_s)
             time.sleep(poll_s)
             if not hal.button.pressed():
