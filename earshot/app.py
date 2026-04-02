@@ -598,4 +598,11 @@ class EarshotApp:
         if hal.animator is not None:
             hal.animator.run_fade_off(2.0)
         _log.info("requesting system poweroff")
-        subprocess.run(["/sbin/poweroff"], check=False)
+        try:
+            import ctypes
+            # CAP_SYS_BOOT allows calling reboot(2) directly.
+            # LINUX_REBOOT_CMD_POWER_OFF = 0x4321fedc
+            ctypes.CDLL("libc.so.6").reboot(0x4321fedc)
+        except Exception as exc:
+            _log.warning("poweroff via libc failed (%s); falling back to systemctl", exc)
+            subprocess.run(["systemctl", "poweroff", "--no-wall"], check=False)
