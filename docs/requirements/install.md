@@ -6,9 +6,10 @@
   - Prompt the user to select their HAT (see below), then write `hardware.hat` to `config.toml`
   - Do an apt update & apt upgrade
   - Install the appropriate HAT audio driver based on the selection (mutually exclusive — see note below)
-  - Install system-level audio and ffmpeg dependencies
+  - Install system-level audio and ffmpeg dependencies (`ffmpeg`, `dosfstools`, `mtools`)
   - Set up a Python 3.11 virtual environment and install all Python dependencies
   - Install and enable a systemd service so Earshot starts on boot
+  - For Pi Zero 2W (Whisplay): enable `dtoverlay=dwc2` in `/boot/firmware/config.txt`, install USB gadget helper scripts (`earshot-gadget-on`, `earshot-gadget-off`), and configure the systemd service with `CAP_SYS_MODULE` and `CAP_SYS_ADMIN` ambient capabilities for gadget mode
 - A reboot at the end of install is required — the audio driver does not appear in ALSA until after reboot.
 
 ### HAT Selection Prompt

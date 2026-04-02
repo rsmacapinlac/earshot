@@ -65,30 +65,34 @@ Allows a user to retrieve recordings by inserting a FAT32-formatted USB stick in
 
 ## FR-12: USB Gadget Mode Offload (Pi Zero 2W)
 
-Allows a user to retrieve recordings by plugging a micro-USB OTG cable from the Pi Zero 2W into a laptop. The device exposes the recordings directory as a USB mass storage device.
+Allows a user to retrieve recordings by plugging a micro-USB OTG cable from the Pi Zero 2W into a laptop. The device exposes the recordings as a USB mass storage device labelled **EARSHOT**.
 
 ### Behaviour
 
-- The device monitors for USB host connection via VBUS detection using a udev rule.
+- The device monitors for USB host connection using a `g_zero` probe gadget: a minimal USB gadget is loaded at idle so the UDC (USB Device Controller) can report VBUS and connection state. When the UDC transitions to `configured`, a host is connected.
 - **If no recording session is active on connection:** offload begins immediately (steps 1–4 below).
 - **If a recording session is active on connection:** the connection is registered and offload is deferred. The device continues recording normally (LED remains **red**). On the Whisplay HAT, Zone D of the display shows `USB pending`. When the user presses the button to end the session (and the final chunk finishes encoding), offload begins.
   - **Note:** The laptop will not see a USB mass storage device until the deferred offload begins — this is expected behaviour. The cable should remain plugged in.
 - On offload start:
-  1. The recordings directory is remounted read-only.
-  2. The `g_mass_storage` USB gadget module is loaded, backed by the recordings directory.
-  3. The LED pulsates **blue** (slow).
-  4. The laptop sees a standard USB mass storage device — no drivers or software required.
+  1. A sparse FAT32 image (`/tmp/earshot-recordings.img`) is created, sized to the current recordings content.
+  2. All session directories are copied into the image using `mtools` (no root or loop-mount required).
+  3. The `g_mass_storage` kernel module is loaded with the image as its backing file (read-only, volume label `EARSHOT`).
+  4. The LED pulsates **blue** (slow).
+  5. The laptop sees a standard USB mass storage device — no drivers or software required.
 - On disconnection:
-  1. `g_mass_storage` is unloaded.
-  2. The recordings directory is remounted read-write.
+  1. `g_mass_storage` is unloaded and the image file is deleted.
+  2. The `g_zero` probe is reloaded, ready for the next connection.
   3. The device returns to idle state (FR-1).
 
 ### Prerequisites
 
-- `dtoverlay=dwc2` must be present in `/boot/config.txt` (handled by the installer, FR-8).
-- Power is supplied via the dedicated power micro-USB port; the OTG micro-USB port is used for data.
+- `dtoverlay=dwc2` must be present in `/boot/firmware/config.txt` under the `[all]` section (added by the installer, FR-8). The `[cm4]` and `[cm5]` conditional sections may also be present but do not affect the Pi Zero 2W.
+- Power is supplied via the dedicated **PWR IN** micro-USB port; the **USB** (OTG data) micro-USB port is used for this feature.
+- `dosfstools` and `mtools` must be installed (handled by the installer, FR-8).
+- The systemd service requires `CAP_SYS_MODULE` (to load/unload `g_zero` and `g_mass_storage`) set as an ambient capability — configured automatically by the service unit.
 
 ### Constraints
 
-- The device does not record while in active offload mode (once `g_mass_storage` is loaded).
+- The device does not record while in active offload mode (once `g_mass_storage` is loaded). If the user presses the button to record, the gadget is deactivated first.
+- The USB volume is a **snapshot** of recordings at the time the cable was connected. Files recorded after connection are not visible until the next connection.
 - The user must safely eject the drive on the laptop before unplugging to avoid filesystem corruption.
