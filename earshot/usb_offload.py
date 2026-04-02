@@ -289,9 +289,9 @@ class GadgetOffload:
                             timeout=5.0,
                         )
                         probe_loaded = True
-                        _log.debug("gadget: g_zero probe loaded")
+                        _log.info("gadget: g_zero probe loaded")
                     except Exception as exc:
-                        _log.debug("gadget: g_zero probe failed: %s", exc)
+                        _log.warning("gadget: g_zero probe failed: %s", exc)
                     continue
 
                 # Probe loaded — check if a host has connected.
