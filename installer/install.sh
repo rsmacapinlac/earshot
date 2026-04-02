@@ -292,20 +292,20 @@ else
     # paths with no wildcards (Debian Trixie visudo rejects wildcard mount args).
     log "Installing USB gadget helper scripts..."
 
-    # Storage dir for the transient FAT32 image used by g_mass_storage.
-    sudo mkdir -p /var/lib/earshot
-
     sudo install -m 755 /dev/stdin /usr/local/bin/earshot-gadget-on <<'GADGETON'
 #!/bin/bash
 # Earshot FR-12: USB gadget helper — probe detection and mass-storage activation.
+# Runs with CAP_SYS_MODULE and CAP_SYS_ADMIN inherited from the earshot service.
 #
 # Usage:
-#   earshot-gadget-on probe          — load g_zero to detect VBUS
-#   earshot-gadget-on activate <dir> — create FAT32 image from <dir>, load g_mass_storage
+#   earshot-gadget-on probe             — load g_zero to detect VBUS
+#   earshot-gadget-on activate <dir>    — create FAT32 image from <dir>, load g_mass_storage
 set -euo pipefail
 
 CMD="${1:-activate}"
-IMAGE="/var/lib/earshot/recordings.img"
+# Use /tmp so the service user can write without root ownership issues.
+IMAGE="/tmp/earshot-recordings.img"
+MOUNT_POINT="/tmp/earshot-image"
 
 case "$CMD" in
   probe)
@@ -326,13 +326,11 @@ case "$CMD" in
     # Unload probe gadget if still present.
     modprobe -r g_zero 2>/dev/null || true
 
-    # Create sparse FAT32 image (seek= makes it sparse; no data written).
-    mkdir -p "$(dirname "$IMAGE")"
+    # Create sparse FAT32 image (seek= makes it sparse; no data written for count=0).
     dd if=/dev/zero of="$IMAGE" bs=1024 count=0 seek="$SIZE_KB" 2>/dev/null
     /sbin/mkfs.fat -F 32 "$IMAGE" >/dev/null 2>&1
 
     # Mount, copy recordings, unmount.  Needs CAP_SYS_ADMIN.
-    MOUNT_POINT="/mnt/earshot-image"
     mkdir -p "$MOUNT_POINT"
     mount -o loop "$IMAGE" "$MOUNT_POINT"
     cp -a "$RECORDINGS_DIR"/. "$MOUNT_POINT/" 2>/dev/null || true
@@ -357,7 +355,7 @@ GADGETON
 set -euo pipefail
 modprobe -r g_mass_storage 2>/dev/null || true
 modprobe -r g_zero 2>/dev/null || true
-rm -f /var/lib/earshot/recordings.img
+rm -f /tmp/earshot-recordings.img
 GADGETOFF
 
     log "Installing sudoers rules for USB gadget mode..."
