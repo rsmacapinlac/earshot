@@ -47,14 +47,15 @@ _PALETTE: dict[str, tuple[int, int, int]] = {
 }
 _DEFAULT_COLOUR = (255, 255, 255)
 
-# ASCII logo animation frames (ADR-0014)
+# ASCII logo animation frames (ADR-0014).
+# Full mark is 7 lines — dot, 3 arc pairs, dot — symmetric, expands outward.
 LOGO_FRAMES = [
-    "·",
-    "·\n )",
-    "·\n )\n ))",
-    "·\n )\n ))\n )))",
-    "·\n )\n ))",
-    "·\n )",
+    "·",                               # 1 line  — dot only
+    "·\n )\n·",                        # 3 lines — 1 arc pair
+    "·\n )\n ))\n ))\n )\n·",         # 6 lines — 2 arc pairs
+    "·\n )\n ))\n )))\n ))\n )\n·",   # 7 lines — full mark (maximum)
+    "·\n )\n ))\n ))\n )\n·",         # 6 lines — collapsing
+    "·\n )\n·",                        # 3 lines — collapsing
 ]
 
 # Zone A labels per state
@@ -365,13 +366,13 @@ class WhisplayDisplay(DisplayDriver):
             img = Image.new("RGB", (_LCD_WIDTH, _LCD_HEIGHT), bg)
             draw = ImageDraw.Draw(img)
 
-            # Zone A — state label (top)
-            draw.text((12, 10), zone_a_label, fill=accent, font=self._font_large)
-            # Zone B — logo (middle)
-            draw.text((20, 80), logo_text, fill=accent, font=self._font_medium)
-            # Zone C — primary data
-            draw.text((12, 200), zone_c, fill=white, font=self._font_medium)
-            # Zone D — secondary data
+            # Zone A (~60px)  — state label
+            draw.text((12, 8), zone_a_label, fill=accent, font=self._font_large)
+            # Zone B (~120px) — logo, small font so 7 lines fit
+            draw.text((20, 65), logo_text, fill=accent, font=self._font_small)
+            # Zone C (~60px)  — primary data
+            draw.text((12, 195), zone_c, fill=white, font=self._font_medium)
+            # Zone D (~40px)  — secondary data
             draw.text((12, 248), zone_d, fill=muted, font=self._font_small)
 
             self._device.display(img)
