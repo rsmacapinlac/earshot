@@ -13,9 +13,15 @@ from earshot.hal.protocols import DisplayDriver, LEDDriver, LedPattern
 _log = logging.getLogger(__name__)
 
 # GPIO BCM pin numbers for the Whisplay HAT's discrete RGB LED.
+# The LED is common-anode (active-low): set active_high=False in gpiozero.
 _GPIO_RED = 25
 _GPIO_GREEN = 24
 _GPIO_BLUE = 23
+
+# GPIO BCM pin numbers for the ST7789P3 SPI display.
+_GPIO_DC = 27     # Data/Command select
+_GPIO_RST = 4     # Reset
+_GPIO_BL = 22     # Backlight enable (active-low)
 
 # LED animation timing (mirrors LedAnimator in animator.py)
 _SLOW_PERIOD_S = 1.0
@@ -78,7 +84,7 @@ class WhisplayLED(LEDDriver):
     def __init__(self) -> None:
         from gpiozero import RGBLED  # type: ignore[import-untyped]
 
-        self._rgb = RGBLED(red=_GPIO_RED, green=_GPIO_GREEN, blue=_GPIO_BLUE)
+        self._rgb = RGBLED(red=_GPIO_RED, green=_GPIO_GREEN, blue=_GPIO_BLUE, active_high=False)
         self._lock = threading.Lock()
         self._red = 255
         self._green = 255
@@ -164,6 +170,7 @@ class WhisplayDisplay(DisplayDriver):
 
     def __init__(self, brightness: int = 80) -> None:
         self._brightness = max(0, min(100, brightness))
+        self._bl_pin = None
         self._device = self._init_device()
         self._frame_idx = 0
         self._lock = threading.Lock()
@@ -173,12 +180,24 @@ class WhisplayDisplay(DisplayDriver):
             from luma.core.interface.serial import spi
             from luma.lcd.device import st7789
 
-            serial = spi(port=0, device=0, gpio_DC=25, gpio_RST=27)
+            serial = spi(port=0, device=0, gpio_DC=_GPIO_DC, gpio_RST=_GPIO_RST)
             device = st7789(serial, width=_LCD_WIDTH, height=_LCD_HEIGHT, rotate=0)
-            device.backlight(self._brightness > 0)
+            # Backlight is active-low on GPIO22: pull LOW to enable.
+            self._bl_pin = self._init_backlight()
             return device
         except Exception as exc:
             _log.error("WhisplayDisplay init failed: %s — display disabled", exc)
+            return None
+
+    def _init_backlight(self):
+        """Drive the backlight GPIO (active-low) to turn the display on."""
+        try:
+            from gpiozero import LED as GpioLED
+            bl = GpioLED(_GPIO_BL, active_high=False)
+            bl.on()
+            return bl
+        except Exception as exc:
+            _log.warning("Backlight GPIO init failed: %s", exc)
             return None
 
     def update(self, state: str, data: dict[str, Any]) -> None:
@@ -224,9 +243,14 @@ class WhisplayDisplay(DisplayDriver):
             _log.debug("WhisplayDisplay.update error: %s", exc)
 
     def close(self) -> None:
+        if self._bl_pin is not None:
+            try:
+                self._bl_pin.off()
+                self._bl_pin.close()
+            except Exception as exc:
+                _log.debug("WhisplayDisplay backlight close: %s", exc)
         if self._device is not None:
             try:
-                self._device.backlight(False)
                 self._device.cleanup()
             except Exception as exc:
                 _log.debug("WhisplayDisplay close: %s", exc)
