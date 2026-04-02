@@ -30,6 +30,7 @@ _FAST_BLINK_PERIOD_S = 0.2
 # LCD geometry (240×280 px, ST7789P3)
 _LCD_WIDTH = 240
 _LCD_HEIGHT = 280
+_LCD_Y_OFFSET = 20  # panel has 20 invisible rows at top (rounded corners)
 
 # Display state colour palette (hex → RGB) — from display.md
 _PALETTE: dict[str, tuple[int, int, int]] = {
@@ -69,6 +70,117 @@ _ZONE_A_LABELS: dict[str, str] = {
     "DISK_FULL": "STORAGE FULL",
     "SHUTDOWN": "GOODBYE",
 }
+
+
+# ── ST7789 raw SPI driver ─────────────────────────────────────────────────────
+
+class _ST7789:
+    """Minimal ST7789P3 driver using spidev + RPi.GPIO.
+
+    Uses the exact init sequence from the PiSugar whisplay-ai-chatbot reference
+    implementation (USE_HORIZONTAL=1, MADCTL=0xC0, RGB565, 20-row Y offset).
+    """
+
+    def __init__(self, dc: int, rst: int) -> None:
+        import spidev
+        import RPi.GPIO as GPIO  # type: ignore[import-untyped]
+
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        GPIO.setup(dc, GPIO.OUT)
+        GPIO.setup(rst, GPIO.OUT)
+        self._dc = dc
+        self._rst = rst
+        self._GPIO = GPIO
+
+        self._spi = spidev.SpiDev()
+        self._spi.open(0, 0)
+        self._spi.max_speed_hz = 40_000_000
+        self._spi.mode = 0b00
+
+        self._reset()
+        self._init()
+
+    # ── low-level helpers ─────────────────────────────────────────────────────
+
+    def _out(self, pin: int, val: int) -> None:
+        self._GPIO.output(pin, val)
+
+    def _cmd(self, cmd: int, *data: int) -> None:
+        self._out(self._dc, 0)
+        self._spi.xfer2([cmd])
+        if data:
+            self._out(self._dc, 1)
+            self._spi.writebytes2(list(data))
+
+    def _data(self, buf: bytes | bytearray) -> None:
+        self._out(self._dc, 1)
+        chunk = 4096
+        mv = memoryview(buf)
+        for i in range(0, len(mv), chunk):
+            self._spi.writebytes2(mv[i : i + chunk])
+
+    # ── init ─────────────────────────────────────────────────────────────────
+
+    def _reset(self) -> None:
+        self._out(self._rst, 1); time.sleep(0.1)
+        self._out(self._rst, 0); time.sleep(0.1)
+        self._out(self._rst, 1); time.sleep(0.12)
+
+    def _init(self) -> None:
+        self._cmd(0x11)           # Sleep Out
+        time.sleep(0.12)
+        self._cmd(0x36, 0xC0)    # MADCTL — MY=1, MX=1 (USE_HORIZONTAL=1)
+        self._cmd(0x3A, 0x05)    # COLMOD — RGB565
+        self._cmd(0xB2, 0x0C, 0x0C, 0x00, 0x33, 0x33)  # PORCTR
+        self._cmd(0xB7, 0x35)    # GCTRL
+        self._cmd(0xBB, 0x32)    # VCOMS
+        self._cmd(0xC2, 0x01)    # VDVS
+        self._cmd(0xC3, 0x15)    # VRHS
+        self._cmd(0xC4, 0x20)    # VDVSET
+        self._cmd(0xC6, 0x0F)    # FRCTRL2
+        self._cmd(0xD0, 0xA4, 0xA1)  # PWCTRL1
+        self._cmd(0xE0, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x05,
+                  0x31, 0x33, 0x48, 0x17, 0x14, 0x15, 0x31, 0x34)
+        self._cmd(0xE1, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x15,
+                  0x31, 0x33, 0x48, 0x17, 0x14, 0x15, 0x31, 0x34)
+        self._cmd(0x21)           # INVON — display inversion on
+        self._cmd(0x29)           # DISPON
+
+    # ── public API ────────────────────────────────────────────────────────────
+
+    def display(self, image: Any) -> None:
+        """Send a PIL Image (RGB mode) to the display."""
+        img = image.convert("RGB").resize((_LCD_WIDTH, _LCD_HEIGHT))
+        # Set column address 0–239, row address 20–299 (20-row offset)
+        y0 = _LCD_Y_OFFSET
+        y1 = _LCD_Y_OFFSET + _LCD_HEIGHT - 1
+        self._cmd(0x2A, 0, 0, 0, _LCD_WIDTH - 1)
+        self._cmd(0x2B, y0 >> 8, y0 & 0xFF, y1 >> 8, y1 & 0xFF)
+        self._cmd(0x2C)
+        # Convert RGB888 → RGB565 big-endian
+        pixels = img.tobytes()
+        buf = bytearray(_LCD_WIDTH * _LCD_HEIGHT * 2)
+        j = 0
+        for i in range(0, len(pixels), 3):
+            r = pixels[i] >> 3
+            g = pixels[i + 1] >> 2
+            b = pixels[i + 2] >> 3
+            rgb565 = (r << 11) | (g << 5) | b
+            buf[j] = (rgb565 >> 8) & 0xFF
+            buf[j + 1] = rgb565 & 0xFF
+            j += 2
+        self._data(buf)
+
+    def cleanup(self) -> None:
+        try:
+            self._spi.close()
+        except Exception:
+            pass
+        try:
+            self._GPIO.cleanup([self._dc, self._rst])
+        except Exception:
+            pass
 
 
 # ── WhisplayLED ───────────────────────────────────────────────────────────────
@@ -159,7 +271,10 @@ class WhisplayLED(LEDDriver):
 # ── WhisplayDisplay ───────────────────────────────────────────────────────────
 
 class WhisplayDisplay(DisplayDriver):
-    """Renders state to the Whisplay HAT's 240×280 ST7789P3 LCD via luma.lcd.
+    """Renders state to the Whisplay HAT's 240×280 ST7789P3 LCD.
+
+    Uses a direct spidev driver with the exact init sequence from the PiSugar
+    whisplay-ai-chatbot reference implementation.
 
     Layout (ADR-0014, display.md):
         Zone A (~60px)  — state label, accent colour, bold
@@ -171,28 +286,27 @@ class WhisplayDisplay(DisplayDriver):
     def __init__(self, brightness: int = 80) -> None:
         self._brightness = max(0, min(100, brightness))
         self._bl_pin = None
-        self._device = self._init_device()
+        self._device: _ST7789 | None = None
         self._frame_idx = 0
         self._lock = threading.Lock()
+        self._font_large = None
+        self._font_medium = None
+        self._font_small = None
+        self._init()
 
-    def _init_device(self):
+    def _init(self) -> None:
         try:
-            from luma.core.interface.serial import spi
-            from luma.lcd.device import st7789
-
-            serial = spi(port=0, device=0, gpio_DC=_GPIO_DC, gpio_RST=_GPIO_RST)
-            device = st7789(serial, width=_LCD_WIDTH, height=_LCD_HEIGHT, rotate=0)
-            # Backlight is active-low on GPIO22: pull LOW to enable.
+            self._device = _ST7789(_GPIO_DC, _GPIO_RST)
             self._bl_pin = self._init_backlight()
-            return device
+            self._load_fonts()
+            _log.info("WhisplayDisplay ready (%dx%d)", _LCD_WIDTH, _LCD_HEIGHT)
         except Exception as exc:
             _log.error("WhisplayDisplay init failed: %s — display disabled", exc)
-            return None
+            self._device = None
 
     def _init_backlight(self):
-        """Drive the backlight GPIO (active-low) to turn the display on."""
         try:
-            from gpiozero import LED as GpioLED
+            from gpiozero import LED as GpioLED  # type: ignore[import-untyped]
             bl = GpioLED(_GPIO_BL, active_high=False)
             bl.on()
             return bl
@@ -200,24 +314,47 @@ class WhisplayDisplay(DisplayDriver):
             _log.warning("Backlight GPIO init failed: %s", exc)
             return None
 
+    def _load_fonts(self) -> None:
+        from PIL import ImageFont
+        candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        ]
+        for path in candidates:
+            try:
+                self._font_large = ImageFont.truetype(path, 28)
+                self._font_medium = ImageFont.truetype(path, 20)
+                self._font_small = ImageFont.truetype(path, 14)
+                _log.debug("Loaded font: %s", path)
+                return
+            except (OSError, IOError):
+                continue
+        # PIL built-in bitmap font — tiny but always available
+        default = ImageFont.load_default()
+        self._font_large = default
+        self._font_medium = default
+        self._font_small = default
+        _log.debug("Using PIL default font")
+
     def update(self, state: str, data: dict[str, Any]) -> None:
         if self._device is None:
             return
         try:
-            from luma.core.render import canvas
-            from PIL import ImageFont
+            from PIL import Image, ImageDraw
 
             colour = _PALETTE.get(state, _DEFAULT_COLOUR)
-            hex_colour = "#{:02X}{:02X}{:02X}".format(*colour)
+            accent = "#{:02X}{:02X}{:02X}".format(*colour)
             bg = "#0D0D0D"
+            white = "#FFFFFF"
             muted = "#888888"
 
             zone_a_label = _ZONE_A_LABELS.get(state, state)
 
-            # Advance logo frame index for animated states; hold at max for IDLE
             with self._lock:
                 if state == "IDLE":
-                    self._frame_idx = 3  # frame 4 (0-indexed 3) = maximum
+                    self._frame_idx = 3
                 else:
                     self._frame_idx = (self._frame_idx + 1) % len(LOGO_FRAMES)
                 logo_text = LOGO_FRAMES[self._frame_idx]
@@ -225,20 +362,19 @@ class WhisplayDisplay(DisplayDriver):
             zone_c = _zone_c(state, data)
             zone_d = _zone_d(state, data)
 
-            with canvas(self._device) as draw:
-                draw.rectangle(
-                    [(0, 0), (_LCD_WIDTH - 1, _LCD_HEIGHT - 1)],
-                    fill=bg,
-                )
-                # Zone A — state label
-                draw.text((10, 8), zone_a_label, fill=hex_colour)
-                # Zone B — logo
-                draw.text((10, 70), logo_text, fill=hex_colour)
-                # Zone C — primary data
-                draw.text((10, 200), zone_c, fill="#FFFFFF")
-                # Zone D — secondary data
-                draw.text((10, 250), zone_d, fill=muted)
+            img = Image.new("RGB", (_LCD_WIDTH, _LCD_HEIGHT), bg)
+            draw = ImageDraw.Draw(img)
 
+            # Zone A — state label (top)
+            draw.text((12, 10), zone_a_label, fill=accent, font=self._font_large)
+            # Zone B — logo (middle)
+            draw.text((20, 80), logo_text, fill=accent, font=self._font_medium)
+            # Zone C — primary data
+            draw.text((12, 200), zone_c, fill=white, font=self._font_medium)
+            # Zone D — secondary data
+            draw.text((12, 248), zone_d, fill=muted, font=self._font_small)
+
+            self._device.display(img)
         except Exception as exc:
             _log.debug("WhisplayDisplay.update error: %s", exc)
 
