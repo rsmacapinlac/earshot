@@ -36,6 +36,8 @@ fi
 
 INSTALL_USER="$(id -un)"
 INSTALL_HOME="$HOME"
+INSTALL_UID="$(id -u)"
+INSTALL_GID="$(id -g)"
 REPO_DIR="$INSTALL_HOME/earshot"
 VENV_DIR="$REPO_DIR/.venv"
 
@@ -242,8 +244,6 @@ chmod 600 "$REPO_DIR/config.toml"
 if [ "$HAT" = "respeaker" ]; then
     # FR-11: Pi 4B USB stick — udev auto-mount rule
     log "Installing USB auto-mount rule and creating mount point..."
-    INSTALL_UID="$(id -u)"
-    INSTALL_GID="$(id -g)"
     sudo mkdir -p /mnt/earshot-usb
     UDEV_RULE="/etc/udev/rules.d/99-earshot-usb.rules"
     cat <<UDEV | sudo tee "$UDEV_RULE" >/dev/null
@@ -255,15 +255,33 @@ UDEV
     sudo udevadm control --reload-rules
     info "udev rule written to $UDEV_RULE"
 else
-    # FR-12: Pi Zero 2W gadget mode — add sudoers rules for modprobe/mount
+    # FR-12: Pi Zero 2W gadget mode — install helper scripts + narrow sudoers rules.
+    # We install helpers to /usr/local/bin so sudoers can reference fixed absolute
+    # paths with no wildcards (Debian Trixie visudo rejects wildcard mount args).
+    log "Installing USB gadget helper scripts..."
+    sudo install -m 755 /dev/stdin /usr/local/bin/earshot-gadget-on <<'GADGETON'
+#!/bin/bash
+# Earshot FR-12: activate USB mass storage gadget.
+set -euo pipefail
+RECORDINGS_DIR="${1:?recordings dir required}"
+/usr/bin/mount -o remount,ro "$RECORDINGS_DIR"
+/usr/sbin/modprobe g_mass_storage "file=$RECORDINGS_DIR" ro=1 removable=1
+GADGETON
+    sudo install -m 755 /dev/stdin /usr/local/bin/earshot-gadget-off <<'GADGETOFF'
+#!/bin/bash
+# Earshot FR-12: deactivate USB mass storage gadget.
+set -euo pipefail
+RECORDINGS_DIR="${1:?recordings dir required}"
+/usr/sbin/modprobe -r g_mass_storage || true
+/usr/bin/mount -o remount,rw "$RECORDINGS_DIR" || true
+GADGETOFF
+
     log "Installing sudoers rules for USB gadget mode..."
     SUDOERS_FILE="/etc/sudoers.d/earshot-gadget"
     cat <<SUDOERS | sudo tee "$SUDOERS_FILE" >/dev/null
 # Earshot: allow service user to manage USB gadget without a password (FR-12).
-$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/sbin/modprobe g_mass_storage *
-$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/sbin/modprobe -r g_mass_storage
-$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/mount -o remount,ro *
-$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/mount -o remount,rw *
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/local/bin/earshot-gadget-on
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/local/bin/earshot-gadget-off
 SUDOERS
     sudo chmod 440 "$SUDOERS_FILE"
     info "sudoers rule written to $SUDOERS_FILE"

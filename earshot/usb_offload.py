@@ -166,42 +166,19 @@ class GadgetOffload:
         with self._lock:
             if self._active:
                 return True
-        try:
-            self._recordings_dir.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                ["sudo", "mount", "-o", "remount,ro", str(self._recordings_dir)],
-                check=True,
-                timeout=10.0,
-                capture_output=True,
-            )
-        except subprocess.CalledProcessError as exc:
-            _log.warning(
-                "gadget: remount read-only failed: %s — skipping gadget activation",
-                exc.stderr.decode().strip() if exc.stderr else exc,
-            )
-            return False
-
+        self._recordings_dir.mkdir(parents=True, exist_ok=True)
         try:
             subprocess.run(
-                [
-                    "sudo",
-                    "modprobe",
-                    _GADGET_MODULE,
-                    f"file={self._recordings_dir}",
-                    "ro=1",
-                    "removable=1",
-                ],
+                ["sudo", "/usr/local/bin/earshot-gadget-on", str(self._recordings_dir)],
                 check=True,
-                timeout=15.0,
+                timeout=20.0,
                 capture_output=True,
             )
         except subprocess.CalledProcessError as exc:
             _log.error(
-                "gadget: modprobe %s failed: %s",
-                _GADGET_MODULE,
+                "gadget: earshot-gadget-on failed: %s",
                 exc.stderr.decode().strip() if exc.stderr else exc,
             )
-            self._remount_rw()
             return False
 
         with self._lock:
@@ -221,28 +198,16 @@ class GadgetOffload:
                 return
         try:
             subprocess.run(
-                ["sudo", "modprobe", "-r", _GADGET_MODULE],
+                ["sudo", "/usr/local/bin/earshot-gadget-off", str(self._recordings_dir)],
                 check=False,
-                timeout=10.0,
+                timeout=15.0,
                 capture_output=True,
             )
         except Exception as exc:
-            _log.warning("gadget: modprobe -r failed: %s", exc)
-        self._remount_rw()
+            _log.warning("gadget: earshot-gadget-off failed: %s", exc)
         with self._lock:
             self._active = False
         _log.info("gadget: disconnected — recordings read-write restored")
-
-    def _remount_rw(self) -> None:
-        try:
-            subprocess.run(
-                ["sudo", "mount", "-o", "remount,rw", str(self._recordings_dir)],
-                check=False,
-                timeout=10.0,
-                capture_output=True,
-            )
-        except Exception as exc:
-            _log.warning("gadget: remount read-write failed: %s", exc)
 
     def _vbus_present(self) -> bool:
         """Return True if a USB host is providing VBUS (5V) on the OTG port."""
