@@ -193,7 +193,7 @@ class GadgetOffload:
         self._recordings_dir.mkdir(parents=True, exist_ok=True)
         try:
             subprocess.run(
-                ["sudo", "/usr/local/bin/earshot-gadget-on", "activate", str(self._recordings_dir)],
+                ["/usr/local/bin/earshot-gadget-on", "activate", str(self._recordings_dir)],
                 check=True,
                 timeout=120.0,  # image creation + copy may take a while for large recordings
                 capture_output=True,
@@ -222,7 +222,7 @@ class GadgetOffload:
                 return
         try:
             subprocess.run(
-                ["sudo", "/usr/local/bin/earshot-gadget-off"],
+                ["/usr/local/bin/earshot-gadget-off"],
                 check=False,
                 timeout=15.0,
                 capture_output=True,
@@ -283,7 +283,7 @@ class GadgetOffload:
                 if not probe_loaded:
                     try:
                         subprocess.run(
-                            ["sudo", "/usr/local/bin/earshot-gadget-on", "probe"],
+                            ["/usr/local/bin/earshot-gadget-on", "probe"],
                             check=True,
                             capture_output=True,
                             timeout=5.0,

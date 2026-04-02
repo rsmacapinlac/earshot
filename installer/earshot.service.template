@@ -35,7 +35,9 @@ PrivateTmp=true
 ProtectSystem=full
 ReadWritePaths=__INSTALL_HOME__/earshot
 # Allow the service to trigger system poweroff (button hold shutdown).
-AmbientCapabilities=CAP_SYS_BOOT
+# CAP_SYS_MODULE: load/unload kernel modules (g_zero, g_mass_storage) for FR-12.
+# CAP_SYS_ADMIN: mount/umount the loop device image for FR-12 gadget mode.
+AmbientCapabilities=CAP_SYS_BOOT CAP_SYS_MODULE CAP_SYS_ADMIN
 
 # Ensure log output is not buffered so `journalctl -f` shows output in real time
 Environment=PYTHONUNBUFFERED=1

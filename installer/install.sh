@@ -310,7 +310,8 @@ IMAGE="/var/lib/earshot/recordings.img"
 case "$CMD" in
   probe)
     # Load a minimal gadget so the UDC can report VBUS / host connection state.
-    /usr/sbin/modprobe g_zero 2>/dev/null || true
+    # Runs with CAP_SYS_MODULE inherited from the earshot service.
+    modprobe g_zero 2>/dev/null || true
     ;;
 
   activate)
@@ -323,14 +324,14 @@ case "$CMD" in
     [ "$SIZE_KB" -lt 32768 ] && SIZE_KB=32768
 
     # Unload probe gadget if still present.
-    /usr/sbin/modprobe -r g_zero 2>/dev/null || true
+    modprobe -r g_zero 2>/dev/null || true
 
     # Create sparse FAT32 image (seek= makes it sparse; no data written).
     mkdir -p "$(dirname "$IMAGE")"
     dd if=/dev/zero of="$IMAGE" bs=1024 count=0 seek="$SIZE_KB" 2>/dev/null
     /sbin/mkfs.fat -F 32 "$IMAGE" >/dev/null 2>&1
 
-    # Mount, copy recordings, unmount.
+    # Mount, copy recordings, unmount.  Needs CAP_SYS_ADMIN.
     MOUNT_POINT="/mnt/earshot-image"
     mkdir -p "$MOUNT_POINT"
     mount -o loop "$IMAGE" "$MOUNT_POINT"
@@ -339,7 +340,7 @@ case "$CMD" in
     umount "$MOUNT_POINT"
 
     # Expose the image as a USB mass storage device (read-only).
-    /usr/sbin/modprobe g_mass_storage "file=$IMAGE" ro=1 removable=1
+    modprobe g_mass_storage "file=$IMAGE" ro=1 removable=1
     ;;
 
   *)
@@ -352,9 +353,10 @@ GADGETON
     sudo install -m 755 /dev/stdin /usr/local/bin/earshot-gadget-off <<'GADGETOFF'
 #!/bin/bash
 # Earshot FR-12: deactivate USB gadget and clean up image.
+# Runs with CAP_SYS_MODULE inherited from the earshot service.
 set -euo pipefail
-/usr/sbin/modprobe -r g_mass_storage 2>/dev/null || true
-/usr/sbin/modprobe -r g_zero 2>/dev/null || true
+modprobe -r g_mass_storage 2>/dev/null || true
+modprobe -r g_zero 2>/dev/null || true
 rm -f /var/lib/earshot/recordings.img
 GADGETOFF
 
