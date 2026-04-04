@@ -7,6 +7,7 @@
   - Do an apt update & apt upgrade
   - Install the appropriate HAT audio driver based on the selection (mutually exclusive — see note below)
   - Install system-level audio and ffmpeg dependencies (`ffmpeg`, `dosfstools`, `mtools`)
+  - Install whisper.cpp and download the default transcription model (see [transcription.md](transcription.md) FR-18 for details; pass `--no-transcription` to skip)
   - Set up a Python 3.11 virtual environment and install all Python dependencies
   - Install and enable a systemd service so Earshot starts on boot
   - For Pi Zero 2W (Whisplay): enable `dtoverlay=dwc2` in `/boot/firmware/config.txt`, install USB gadget helper scripts (`earshot-gadget-on`, `earshot-gadget-off`), and configure the systemd service with `CAP_SYS_MODULE` and `CAP_SYS_ADMIN` ambient capabilities for gadget mode

@@ -40,6 +40,18 @@ All values shown below are defaults. Omitting a key uses the default.
 
 ---
 
+## `[transcription]`
+
+On-device transcription using whisper.cpp. Disabled by default — the installer prompts to enable during setup.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `transcription.enabled` | boolean | `true` | Enable on-device transcription. Requires whisper.cpp and a model file to be installed. Set to `false` to disable. |
+| `transcription.model` | string | `"tiny.en"` | Whisper model to use. `"tiny.en"` (Q5_1, 31 MB) is the default and the only supported model on Pi Zero 2W. `"base.en"` (Q5_1, 57 MB) is recommended on Pi 4B for better accuracy. |
+| `transcription.threads` | integer | `2` | CPU threads allocated to whisper.cpp inference. Default of 2 leaves headroom for recording and encoding on the 4-core CPU. |
+
+---
+
 ## `[audio]` *(v2)*
 
 Audio feedback via the Whisplay HAT speaker is deferred to v2. No `[audio]` keys are used in v1.
@@ -83,6 +95,11 @@ disk_threshold_percent = 90
 
 [display]
 brightness = 80
+
+[transcription]
+enabled = true
+model = "tiny.en"
+threads = 2
 
 [shutdown]
 hold_duration_seconds = 3

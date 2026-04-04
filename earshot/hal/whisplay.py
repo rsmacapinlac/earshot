@@ -1,4 +1,4 @@
-"""Whisplay HAT hardware: GPIO RGB LED and ST7789P3 LCD display (ADR-0013, ADR-0014)."""
+"""Whisplay HAT hardware: GPIO RGB LED and ST7789P3 LCD display (ADR-0008, ADR-0009)."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ _PALETTE: dict[str, tuple[int, int, int]] = {
 }
 _DEFAULT_COLOUR = (255, 255, 255)
 
-# ASCII logo animation frames (ADR-0014).
+# ASCII logo animation frames (ADR-0009).
 # Full mark is 7 lines — dot, 3 arc pairs, dot — symmetric, expands outward.
 LOGO_FRAMES = [
     "·",                               # 1 line  — dot only
@@ -277,7 +277,7 @@ class WhisplayDisplay(DisplayDriver):
     Uses a direct spidev driver with the exact init sequence from the PiSugar
     whisplay-ai-chatbot reference implementation.
 
-    Layout (ADR-0014, display.md):
+    Layout (ADR-0009, display.md):
         Zone A (~60px)  — state label, accent colour, bold
         Zone B (~120px) — ASCII arc logo, centred, accent colour
         Zone C (~60px)  — primary data (large, white or accent)

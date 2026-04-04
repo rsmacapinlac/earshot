@@ -1,4 +1,4 @@
-# 0013 — Whisplay HAT as a Supported Audio HAT
+# 0008 — Whisplay HAT as a Supported Audio HAT
 
 **Status:** Accepted
 
@@ -22,7 +22,7 @@ Add the Whisplay HAT as a second supported HAT alongside the ReSpeaker. The HAT 
 ## Consequences
 
 - The installer must be HAT-aware: it reads `hardware.hat` and installs only the appropriate audio driver. Switching HATs requires re-running the installer.
-- The HAL (ADR-0007) gains two new interface implementations per HAT: `AudioOutputInterface` (speaker) and `DisplayInterface` (LCD) — both no-ops on the ReSpeaker.
+- The HAL (ADR-0003) gains two new interface implementations per HAT: `AudioOutputInterface` (speaker) and `DisplayInterface` (LCD) — both no-ops on the ReSpeaker.
 - New capabilities are available on Whisplay: speaker for audio feedback (FR-5), LCD for display (FR-13).
 - The ReSpeaker remains fully supported — all features that rely only on LEDs and audio capture work identically on both HATs.
 - A new config document (`configuration.md`) was introduced to centralise all config key definitions.

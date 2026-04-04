@@ -1,8 +1,14 @@
 # Processing
 
-The Pi's only post-recording processing is encoding each captured WAV chunk to Opus. No transcription or diarization is performed on-device or server-side.
+Post-recording processing has two stages: encoding (always on) and transcription (opt-in).
 
-> See [device-state.md](device-state.md) for LED behaviour during encoding states.
+1. Each captured WAV chunk is encoded to Opus.
+2. Once all chunks in a session are encoded, the session is queued for transcription if `transcription.enabled = true`.
+
+No diarization is performed on-device.
+
+> See [device-state.md](device-state.md) for LED behaviour during encoding and transcription states.
+> See [transcription.md](transcription.md) for transcription queue, format, and hardware requirements.
 
 ## FR-6: Encoding
 

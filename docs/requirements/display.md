@@ -30,6 +30,7 @@ The Whisplay HAT includes a 1.69" LCD (240×280px, ST7789P3, SPI). This display 
 | USB transfer complete | Blue | `#2080FF` |
 | USB transfer error | Orange | `#FF8000` |
 | Disk threshold reached | Orange | `#FF8000` |
+| Transcribing | Amber | `#FFB300` |
 | Shutting down | White | `#FFFFFF` |
 | Background (all states) | Near-black | `#0D0D0D` |
 
@@ -219,6 +220,30 @@ Duration: 2–3 seconds, then transitions to Ready.
 
 ---
 
+### Transcribing
+
+Only shown when `transcription.enabled = true` and the transcription queue is non-empty.
+
+| Zone | Content |
+|---|---|
+| A | `TRANSCRIBING` — amber |
+| B | Logo: pulse animation, synced to LED |
+| C | `Session N of N` — queue position (e.g. `Session 1 of 3`) |
+| D | Session timestamp (e.g. `2026-04-03 14:22`) |
+
+On completion of the full queue, a brief confirmation screen is shown before returning to idle:
+
+| Zone | Content |
+|---|---|
+| A | `DONE` — amber |
+| B | Logo: full arcs (frame 4), static |
+| C | `Transcription complete` |
+| D | `N sessions processed` |
+
+Duration: 3 seconds, then transitions to Ready.
+
+---
+
 ### Shutting Down
 
 | Zone | Content |
@@ -247,7 +272,7 @@ The canonical brand representation is the full logo (mark + wordmark). The stand
 
 ## FR-13: Display Interface
 
-- The display is driven via `DisplayInterface`, consistent with the HAL pattern (ADR-0007).
+- The display is driven via `DisplayInterface`, consistent with the HAL pattern (ADR-0003).
 - Two implementations: **Real** (ST7789P3 via SPI) and **Stub** (prints logo and state to stdout, for development).
 - The logo frames are stored as plain string constants — no external asset files.
 - The display renders using a monospace font. Font size is chosen so the 5-character wide mark fits comfortably centred in Zone B.

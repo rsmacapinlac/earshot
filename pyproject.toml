@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Raspberry Pi: audio capture, LEDs, GPIO button, display (see ADR 0007, 0013, 0014).
+# Raspberry Pi: audio capture, LEDs, GPIO button, display (see ADR-0003, ADR-0008, ADR-0009).
 pi = [
     "pyaudio",
     "apa102-pi",

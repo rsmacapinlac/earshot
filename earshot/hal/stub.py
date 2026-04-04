@@ -1,4 +1,4 @@
-"""Stub hardware for development off the Pi (ADR 0007)."""
+"""Stub hardware for development off the Pi (ADR-0003)."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ class StdinPulseButton(ButtonDriver):
 
 
 class StubDisplay(DisplayDriver):
-    """Prints display state to stdout — fully observable without a Pi (ADR-0014)."""
+    """Prints display state to stdout — fully observable without a Pi (ADR-0009)."""
 
     def update(self, state: str, data: dict[str, Any]) -> None:
         parts = [f"[DISPLAY] state={state}"]

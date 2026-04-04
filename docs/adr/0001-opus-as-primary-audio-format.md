@@ -1,4 +1,4 @@
-# 0004 — Opus as Primary Audio Storage Format
+# 0001 — Opus as Primary Audio Storage Format
 
 **Status:** Accepted
 
@@ -31,4 +31,4 @@ Encode the WAV to Opus immediately after recording, then delete the WAV. Opus is
 - Opus natively handles 16kHz mono speech without resampling.
 - ffmpeg must be installed as a system dependency (unchanged from MP3).
 - Lossy compression means the original uncompressed audio is not retained. Acceptable given storage constraints.
-- The WAV is a temporary file only; a crash between capture and encoding leaves the WAV on disk. Resilience logic detects and re-encodes unprocessed WAVs on restart (see ADR-0011).
+- The WAV is a temporary file only; a crash between capture and encoding leaves the WAV on disk. Resilience logic detects and re-encodes unprocessed WAVs on restart (see ADR-0006).

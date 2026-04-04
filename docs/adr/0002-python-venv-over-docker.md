@@ -1,4 +1,4 @@
-# 0006 — Python venv over Docker
+# 0002 — Python venv over Docker
 
 **Status:** Accepted
 

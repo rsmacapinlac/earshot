@@ -13,6 +13,7 @@
 | USB transfer complete | Blue | Single flash |
 | USB transfer error | Orange | Slow pulsating |
 | Disk threshold reached | Orange | Slow pulsating |
+| Transcribing | Amber | Slow pulsating (~1.5–2s cycle) |
 | Shutting down | White | Slow pulsating → fade to off |
 
 ### Pattern Definitions
@@ -34,6 +35,7 @@
 
 ## FR-2: Start Recording
 - Pressing the button while idle begins a recording session, provided the disk threshold has not been reached.
+- If transcription is running when the button is pressed, transcription is cancelled immediately and the in-progress session is returned to the front of the transcription queue. Recording begins without delay.
 - If the disk threshold has been reached, the button is ignored and the LED remains pulsating **orange**.
 - The LED pulsates **red** (slow) during recording.
 - A minimum recording duration of 3 seconds is enforced (configurable). If the button is pressed before the minimum is reached, the recording is discarded and the LED double-flashes **green** to signal the device is ready.

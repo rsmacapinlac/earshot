@@ -17,7 +17,7 @@ Earshot has two distinct development contexts:
 ffmpeg-based WAV-to-Opus encoding is hardware-agnostic and runs on any Linux/Mac/Windows machine. Develop and test encoding logic locally using sample audio files.
 
 ### Hardware Abstraction
-Hardware-specific components are implemented behind interfaces (see ADR-0007). Each interface has a **Real** implementation (Pi hardware) and a **Stub** implementation (in-memory/no-op for local development).
+Hardware-specific components are implemented behind interfaces (see ADR-0003). Each interface has a **Real** implementation (Pi hardware) and a **Stub** implementation (in-memory/no-op for local development).
 
 | Interface | Responsibility | Stub behaviour |
 |---|---|---|
@@ -34,6 +34,20 @@ python -m earshot --stub
 ```
 
 This is the standard way to run the application on a development machine without a Pi.
+
+---
+
+## Branching Convention
+
+All release work is done on a dedicated branch. Never implement release features directly on `main`.
+
+```bash
+git checkout -b release/v0.2.0
+# ... implement, commit ...
+git checkout main && git merge release/v0.2.0
+```
+
+Branch naming: `release/vX.Y.Z`. Planning documents (ADRs, requirements, release plans) may be committed directly to `main`.
 
 ---
 

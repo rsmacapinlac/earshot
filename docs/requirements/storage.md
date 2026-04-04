@@ -21,6 +21,7 @@
 2. When the chunk duration is reached (or recording stops), close the WAV and encode to Opus.
 3. Delete the WAV once the `.opus` file is confirmed written.
 4. If recording continues, begin the next chunk (`audio_002.wav`, etc.) while encoding runs in the background.
+5. When the session ends and all chunks are encoded, queue the session for transcription (if `transcription.enabled = true`). See [transcription.md](transcription.md).
 
 ### Filesystem as State
 The filesystem is the source of truth for recording state — no database is used.
@@ -29,7 +30,8 @@ The filesystem is the source of truth for recording state — no database is use
 |---|---|
 | `audio_NNN.wav` only | Chunk currently recording or interrupted before encode |
 | `audio_NNN.wav` + `audio_NNN.opus` | Chunk encode in progress |
-| `audio_NNN.opus` only | Chunk successfully encoded |
+| `audio_NNN.opus` only (no `transcript.md`) | Chunk encoded; session pending transcription |
+| `audio_NNN.opus` + `transcript.md` | Session fully processed (encoded + transcribed) |
 | `audio_NNN.wav` + `.failed_NNN` marker | Encoding failed for that chunk; WAV retained |
 
 On boot, any session directory containing a WAV with no corresponding Opus (and no `.failed` marker) is treated as interrupted — encoding is retried automatically.

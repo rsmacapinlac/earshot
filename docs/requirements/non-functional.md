@@ -21,6 +21,6 @@ Startup time targets differ by SBC due to CPU speed:
 - Real-time / live transcription during recording
 - Multi-device coordination
 - Web UI or local dashboard
-- Speaker identification (who a speaker is, not just that they differ)
-- On-device or server-side transcription and diarization
+- Speaker identification / diarization (who is speaking)
+- Server-side transcription
 - Audio feedback / speaker output (hardware present on Whisplay HAT — deferred to v2)

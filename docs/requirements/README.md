@@ -4,15 +4,33 @@ Earshot is a Raspberry Pi application (Pi 4B or Pi Zero 2W) that records audio v
 
 ## Documents
 
+### Hardware
 | File | Description |
 |---|---|
-| [hardware.md](hardware.md) | Target hardware and components |
-| [configuration.md](configuration.md) | `config.toml` schema, all keys and defaults |
+| [hardware.md](hardware.md) | Supported SBCs and HATs — specs and capabilities |
+
+### Behaviour
+| File | Description |
+|---|---|
+| [device-state.md](device-state.md) | Device state machine — LED colours, button behaviour, start/stop recording |
 | [display.md](display.md) | LCD display UX for the Whisplay HAT |
-| [device-state.md](device-state.md) | Device state machine, LED and button behaviour, start/stop recording, audio feedback |
-| [processing.md](processing.md) | On-device audio encoding |
+
+### Audio Pipeline
+| File | Description |
+|---|---|
+| [processing.md](processing.md) | Encoding and transcription overview |
+| [transcription.md](transcription.md) | On-device transcription — queue, format, and installer requirements |
 | [storage.md](storage.md) | Local file storage, filesystem state, and USB offload |
-| [connectivity.md](connectivity.md) | WiFi setup for SSH access |
+
+### Setup & Configuration
+| File | Description |
+|---|---|
+| [configuration.md](configuration.md) | `config.toml` schema — all keys and defaults |
 | [install.md](install.md) | One-line installer requirements |
-| [non-functional.md](non-functional.md) | Performance, resilience, and constraints |
-| [open-questions.md](open-questions.md) | Unresolved decisions and open questions |
+| [connectivity.md](connectivity.md) | WiFi setup for SSH access |
+
+### Constraints & Planning
+| File | Description |
+|---|---|
+| [non-functional.md](non-functional.md) | Performance, resilience, and out-of-scope items |
+| [open-questions.md](open-questions.md) | Unresolved questions |

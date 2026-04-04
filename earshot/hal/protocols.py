@@ -1,4 +1,4 @@
-"""Hardware abstraction (ADR 0007)."""
+"""Hardware abstraction (ADR-0003)."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class AudioCapture(Protocol):
 
 @runtime_checkable
 class DisplayDriver(Protocol):
-    """LCD display on Whisplay HAT; no-op on ReSpeaker (ADR-0014)."""
+    """LCD display on Whisplay HAT; no-op on ReSpeaker (ADR-0009)."""
 
     def update(self, state: str, data: dict[str, Any]) -> None:
         """Render the given device state and supplementary data to the display.

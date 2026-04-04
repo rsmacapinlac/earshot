@@ -1,4 +1,4 @@
-# 0014 — ASCII Art for LCD Display Rendering
+# 0009 — ASCII Art for LCD Display Rendering
 
 **Status:** Accepted
 

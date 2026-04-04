@@ -1,4 +1,4 @@
-# 0007 — Hardware Abstraction Layer
+# 0003 — Hardware Abstraction Layer
 
 **Status:** Accepted
 
