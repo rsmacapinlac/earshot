@@ -568,8 +568,12 @@ case "$CMD" in
     SIZE_KB=$(( (USED_KB * 12 / 10) + 32768 ))   # +20% then +32 MB floor
     [ "$SIZE_KB" -lt 32768 ] && SIZE_KB=32768
 
-    # Unload probe gadget if still present.
+    # Unload any existing gadget modules — modprobe won't reload an already-loaded
+    # module, so if g_mass_storage is stale from a previous session the new
+    # image file= parameter would be silently ignored without this.
+    modprobe -r g_mass_storage 2>/dev/null || true
     modprobe -r g_zero 2>/dev/null || true
+    rm -f "$IMAGE"
 
     # Create sparse FAT32 image (seek= makes it sparse; no data written for count=0).
     dd if=/dev/zero of="$IMAGE" bs=1024 count=0 seek="$SIZE_KB" 2>/dev/null
