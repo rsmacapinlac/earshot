@@ -145,6 +145,12 @@ class EarshotApp:
                     while self._gadget.is_active and not self._usb_stop.is_set():
                         if not self._gadget.pending.is_set():
                             break  # host disconnected → monitor deactivated
+                        if hal.button.pressed():
+                            # Button press exits transfer mode — user has finished.
+                            _log.info("Button pressed during USB transfer — returning to idle")
+                            self._gadget.deactivate()
+                            self._gadget.pending.clear()
+                            break
                         if self._gadget.host_connected.is_set():
                             hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
                             hal.display.update(
@@ -201,6 +207,11 @@ class EarshotApp:
                 if self._gadget.activate():
                     while self._gadget.is_active and not self._usb_stop.is_set():
                         if not self._gadget.pending.is_set():
+                            break
+                        if hal.button.pressed():
+                            _log.info("Button pressed during USB transfer — returning to idle")
+                            self._gadget.deactivate()
+                            self._gadget.pending.clear()
                             break
                         if self._gadget.host_connected.is_set():
                             hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)

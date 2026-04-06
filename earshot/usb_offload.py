@@ -313,6 +313,8 @@ class GadgetOffload:
             if active:
                 # Post-activation: watch UDC state for actual host connect/disconnect.
                 udc = _udc_state()
+                # "suspended" means the host put the device to sleep — macOS does
+                # this on safe-eject without physical unplug; treat as disconnected.
                 connected = udc in ("configured", "addressed")
                 if connected and not self.host_connected.is_set():
                     _log.info("gadget: USB host enumerated (UDC=%s)", udc)
