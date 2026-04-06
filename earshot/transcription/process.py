@@ -75,7 +75,11 @@ def transcribe_session(
     # Two temp files: a concat demuxer filelist and the decoded WAV.
     # whisper-cli calls fseek() when reading WAV, so /dev/stdin cannot be used.
     filelist_fd, filelist_path = tempfile.mkstemp(suffix=".txt", prefix="earshot-concat-")
-    wav_fd, wav_path = tempfile.mkstemp(suffix=".wav", prefix="earshot-wav-")
+    # Write the decoded WAV to /dev/shm (RAM-backed tmpfs) to avoid SD card I/O.
+    # whisper-cli calls fseek() when parsing WAV, so a seekable file is required —
+    # piping via /dev/stdin does not work.
+    shm_dir = "/dev/shm" if os.path.isdir("/dev/shm") else None
+    wav_fd, wav_path = tempfile.mkstemp(suffix=".wav", prefix="earshot-wav-", dir=shm_dir)
     os.close(wav_fd)  # ffmpeg will open it by path
     try:
         with os.fdopen(filelist_fd, "w") as fh:
