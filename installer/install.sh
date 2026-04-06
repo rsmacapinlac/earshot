@@ -102,7 +102,9 @@ if $TRANSCRIPTION_ONLY; then
                 --branch "$WHISPER_VERSION" \
                 https://github.com/ggerganov/whisper.cpp.git \
                 "$_src_dir"
-            cmake -B "$_src_dir/build" -S "$_src_dir" -DWHISPER_BUILD_TESTS=OFF
+            cmake -B "$_src_dir/build" -S "$_src_dir" \
+                -DWHISPER_BUILD_TESTS=OFF \
+                -DBUILD_SHARED_LIBS=OFF
             cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(nproc)"
             sudo install -m 755 "$_src_dir/build/bin/whisper-cli" /usr/local/bin/whisper-cli
             rm -rf "$_src_dir"
@@ -373,7 +375,9 @@ else
                 --branch "$WHISPER_VERSION" \
                 https://github.com/ggerganov/whisper.cpp.git \
                 "$_src_dir"
-            cmake -B "$_src_dir/build" -S "$_src_dir" -DWHISPER_BUILD_TESTS=OFF
+            cmake -B "$_src_dir/build" -S "$_src_dir" \
+                -DWHISPER_BUILD_TESTS=OFF \
+                -DBUILD_SHARED_LIBS=OFF
             cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(nproc)"
             sudo install -m 755 "$_src_dir/build/bin/whisper-cli" /usr/local/bin/whisper-cli
             rm -rf "$_src_dir"
