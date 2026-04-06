@@ -41,6 +41,22 @@ class TestTranscribeSession:
         m.write_bytes(b"fake model")
         return m
 
+    def _mock_ffmpeg(self, returncode: int = 0) -> MagicMock:
+        """ffmpeg Popen mock: no stdout pipe (writes to temp WAV file by path)."""
+        mock = MagicMock()
+        mock.poll.side_effect = [None, returncode]
+        mock.returncode = returncode
+        mock.wait.return_value = returncode
+        return mock
+
+    def _mock_whisper(self, stdout: bytes = b"", returncode: int = 0) -> MagicMock:
+        mock = MagicMock()
+        mock.poll.side_effect = [None, returncode]
+        mock.returncode = returncode
+        mock.stdout.read.return_value = stdout
+        mock.wait.return_value = returncode
+        return mock
+
     def test_no_opus_files_returns_none(self, tmp_path):
         d = tmp_path / "empty_session"
         d.mkdir()
@@ -57,7 +73,21 @@ class TestTranscribeSession:
     def test_ffmpeg_not_found_returns_none(self, tmp_path):
         d = self._make_session(tmp_path)
         model = self._make_model(tmp_path)
-        with patch("earshot.transcription.process.subprocess.Popen", side_effect=FileNotFoundError("ffmpeg")):
+        with patch(
+            "earshot.transcription.process.subprocess.Popen",
+            side_effect=FileNotFoundError("ffmpeg"),
+        ):
+            result = transcribe_session(d, model, threads=1, cancel=threading.Event())
+        assert result is None
+
+    def test_ffmpeg_nonzero_exit_returns_none(self, tmp_path):
+        d = self._make_session(tmp_path)
+        model = self._make_model(tmp_path)
+
+        with patch(
+            "earshot.transcription.process.subprocess.Popen",
+            side_effect=[self._mock_ffmpeg(returncode=1)],
+        ):
             result = transcribe_session(d, model, threads=1, cancel=threading.Event())
         assert result is None
 
@@ -65,53 +95,62 @@ class TestTranscribeSession:
         d = self._make_session(tmp_path)
         model = self._make_model(tmp_path)
 
-        mock_ffmpeg = MagicMock()
-        mock_ffmpeg.stdout = MagicMock()
-        mock_ffmpeg.wait.return_value = 0
-
-        mock_whisper = MagicMock()
-        mock_whisper.poll.side_effect = [None, 1]
-        mock_whisper.returncode = 1
-        mock_whisper.stdout.read.return_value = b""
-
         with patch(
             "earshot.transcription.process.subprocess.Popen",
-            side_effect=[mock_ffmpeg, mock_whisper],
+            side_effect=[self._mock_ffmpeg(), self._mock_whisper(returncode=1)],
         ):
             result = transcribe_session(d, model, threads=1, cancel=threading.Event())
         assert result is None
 
-    def test_cancel_event_terminates_processes(self, tmp_path):
+    def test_cancel_during_ffmpeg_terminates_process(self, tmp_path):
         d = self._make_session(tmp_path)
         model = self._make_model(tmp_path)
 
         cancel = threading.Event()
-
         mock_ffmpeg = MagicMock()
-        mock_ffmpeg.stdout = MagicMock()
         mock_ffmpeg.wait.return_value = 0
 
-        def _poll_side_effect():
-            """Return None (running) twice, then set cancel to simulate button press."""
-            _poll_side_effect.calls += 1
-            if _poll_side_effect.calls == 2:
+        def _poll():
+            _poll.calls += 1
+            if _poll.calls == 2:
                 cancel.set()
-            return None  # always running; cancel event will stop the loop
-        _poll_side_effect.calls = 0
-
-        mock_whisper = MagicMock()
-        mock_whisper.poll.side_effect = _poll_side_effect
-        mock_whisper.wait.return_value = 0
+            return None
+        _poll.calls = 0
+        mock_ffmpeg.poll.side_effect = _poll
 
         with patch(
             "earshot.transcription.process.subprocess.Popen",
-            side_effect=[mock_ffmpeg, mock_whisper],
+            side_effect=[mock_ffmpeg],
+        ):
+            result = transcribe_session(d, model, threads=1, cancel=cancel)
+
+        assert result is None
+        mock_ffmpeg.terminate.assert_called_once()
+
+    def test_cancel_during_whisper_terminates_process(self, tmp_path):
+        d = self._make_session(tmp_path)
+        model = self._make_model(tmp_path)
+
+        cancel = threading.Event()
+        mock_whisper = MagicMock()
+        mock_whisper.wait.return_value = 0
+
+        def _poll():
+            _poll.calls += 1
+            if _poll.calls == 2:
+                cancel.set()
+            return None
+        _poll.calls = 0
+        mock_whisper.poll.side_effect = _poll
+
+        with patch(
+            "earshot.transcription.process.subprocess.Popen",
+            side_effect=[self._mock_ffmpeg(), mock_whisper],
         ):
             result = transcribe_session(d, model, threads=1, cancel=cancel)
 
         assert result is None
         mock_whisper.terminate.assert_called_once()
-        mock_ffmpeg.terminate.assert_called_once()
 
     def test_parses_segments_from_stdout(self, tmp_path):
         d = self._make_session(tmp_path)
@@ -123,18 +162,12 @@ class TestTranscribeSession:
             b"some other line without a timestamp\n"
         )
 
-        mock_ffmpeg = MagicMock()
-        mock_ffmpeg.stdout = MagicMock()
-        mock_ffmpeg.wait.return_value = 0
-
-        mock_whisper = MagicMock()
-        mock_whisper.poll.side_effect = [None, 0]
-        mock_whisper.returncode = 0
-        mock_whisper.stdout.read.return_value = stdout_text
-
         with patch(
             "earshot.transcription.process.subprocess.Popen",
-            side_effect=[mock_ffmpeg, mock_whisper],
+            side_effect=[
+                self._mock_ffmpeg(),
+                self._mock_whisper(stdout=stdout_text),
+            ],
         ):
             result = transcribe_session(d, model, threads=1, cancel=threading.Event())
 
@@ -147,43 +180,41 @@ class TestTranscribeSession:
         d = self._make_session(tmp_path)
         model = self._make_model(tmp_path)
 
-        mock_ffmpeg = MagicMock()
-        mock_ffmpeg.stdout = MagicMock()
-        mock_ffmpeg.wait.return_value = 0
+        with patch(
+            "earshot.transcription.process.subprocess.Popen",
+            side_effect=[self._mock_ffmpeg(), self._mock_whisper()],
+        ):
+            result = transcribe_session(d, model, threads=1, cancel=threading.Event())
 
-        mock_whisper = MagicMock()
-        mock_whisper.poll.side_effect = [None, 0]
-        mock_whisper.returncode = 0
-        mock_whisper.stdout.read.return_value = b""
+        assert result == []
+
+    def test_blank_text_segments_excluded(self, tmp_path):
+        d = self._make_session(tmp_path)
+        model = self._make_model(tmp_path)
 
         with patch(
             "earshot.transcription.process.subprocess.Popen",
-            side_effect=[mock_ffmpeg, mock_whisper],
+            side_effect=[
+                self._mock_ffmpeg(),
+                self._mock_whisper(stdout=b"[00:00:00.000 --> 00:00:02.000]  \n"),
+            ],
         ):
             result = transcribe_session(d, model, threads=1, cancel=threading.Event())
 
         assert result == []
 
     def test_uses_concat_demuxer_not_concat_protocol(self, tmp_path):
-        """ffmpeg must be invoked with -f concat (demuxer) not concat: protocol.
+        """ffmpeg must use -f concat demuxer, not the concat: protocol.
 
-        The concat: protocol raw-concatenates bytes and corrupts OGG/Opus containers.
+        The concat: protocol raw-concatenates bytes which corrupts OGG/Opus
+        container streams.  The concat demuxer opens each file properly.
         """
         d = self._make_session(tmp_path)
         model = self._make_model(tmp_path)
 
-        mock_ffmpeg = MagicMock()
-        mock_ffmpeg.stdout = MagicMock()
-        mock_ffmpeg.wait.return_value = 0
-
-        mock_whisper = MagicMock()
-        mock_whisper.poll.side_effect = [None, 0]
-        mock_whisper.returncode = 0
-        mock_whisper.stdout.read.return_value = b""
-
         with patch(
             "earshot.transcription.process.subprocess.Popen",
-            side_effect=[mock_ffmpeg, mock_whisper],
+            side_effect=[self._mock_ffmpeg(), self._mock_whisper()],
         ) as mock_popen:
             transcribe_session(d, model, threads=1, cancel=threading.Event())
 
@@ -191,28 +222,25 @@ class TestTranscribeSession:
         assert "-f" in ffmpeg_args
         concat_idx = ffmpeg_args.index("-f")
         assert ffmpeg_args[concat_idx + 1] == "concat"
-        # Must not use the concat: protocol (which corrupts OGG/Opus containers)
         assert not any(a.startswith("concat:") for a in ffmpeg_args)
 
-    def test_blank_text_segments_excluded(self, tmp_path):
+    def test_whisper_reads_from_wav_file_not_stdin(self, tmp_path):
+        """whisper-cli must be given a real file path, not /dev/stdin.
+
+        whisper-cli uses fseek() internally when reading WAV, which fails on
+        non-seekable file descriptors like /dev/stdin.
+        """
         d = self._make_session(tmp_path)
         model = self._make_model(tmp_path)
 
-        stdout_text = b"[00:00:00.000 --> 00:00:02.000]  \n"
-
-        mock_ffmpeg = MagicMock()
-        mock_ffmpeg.stdout = MagicMock()
-        mock_ffmpeg.wait.return_value = 0
-
-        mock_whisper = MagicMock()
-        mock_whisper.poll.side_effect = [None, 0]
-        mock_whisper.returncode = 0
-        mock_whisper.stdout.read.return_value = stdout_text
-
         with patch(
             "earshot.transcription.process.subprocess.Popen",
-            side_effect=[mock_ffmpeg, mock_whisper],
-        ):
-            result = transcribe_session(d, model, threads=1, cancel=threading.Event())
+            side_effect=[self._mock_ffmpeg(), self._mock_whisper()],
+        ) as mock_popen:
+            transcribe_session(d, model, threads=1, cancel=threading.Event())
 
-        assert result == []
+        whisper_args = mock_popen.call_args_list[1][0][0]
+        f_idx = whisper_args.index("-f")
+        wav_arg = whisper_args[f_idx + 1]
+        assert wav_arg != "/dev/stdin"
+        assert wav_arg.endswith(".wav")

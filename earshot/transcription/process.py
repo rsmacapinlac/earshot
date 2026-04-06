@@ -1,13 +1,15 @@
 """Transcription process: concat .opus files → whisper-cli → segment list (FR-15).
 
-Pipeline (no intermediate file):
+Pipeline (two temp files, both cleaned up after use):
 
-    ffmpeg -f concat -safe 0 -i <tmpfile> -ar 16000 -ac 1 -f wav pipe:1
-        | whisper-cli --model <path> --language en --threads N -f /dev/stdin
+    ffmpeg -f concat -safe 0 -i <filelist.txt> -ar 16000 -ac 1 -f wav <tmp.wav>
+    whisper-cli --model <path> --language en --threads N -f <tmp.wav>
 
-The concat demuxer (not the concat: protocol) is used because OGG/Opus
-containers cannot be raw-concatenated — the concat: protocol corrupts the
-stream.  A temporary filelist is written to disk and cleaned up after use.
+Why two temp files:
+- The concat demuxer (not the concat: protocol) is required because OGG/Opus
+  containers cannot be raw-concatenated — the concat: protocol corrupts streams.
+- whisper-cli calls fseek() when parsing WAV, so piping via /dev/stdin fails.
+  A real file is required.
 
 whisper-cli writes timestamped segments to stdout in the format::
 
@@ -70,9 +72,11 @@ def transcribe_session(
         model_path.name,
     )
 
-    # Write a concat demuxer filelist (works correctly with OGG/Opus containers,
-    # unlike the concat: protocol which raw-concatenates and corrupts the stream).
+    # Two temp files: a concat demuxer filelist and the decoded WAV.
+    # whisper-cli calls fseek() when reading WAV, so /dev/stdin cannot be used.
     filelist_fd, filelist_path = tempfile.mkstemp(suffix=".txt", prefix="earshot-concat-")
+    wav_fd, wav_path = tempfile.mkstemp(suffix=".wav", prefix="earshot-wav-")
+    os.close(wav_fd)  # ffmpeg will open it by path
     try:
         with os.fdopen(filelist_fd, "w") as fh:
             for f in opus_files:
@@ -83,47 +87,56 @@ def transcribe_session(
             "-f", "concat", "-safe", "0",
             "-i", filelist_path,
             "-ar", "16000", "-ac", "1",
-            "-f", "wav", "pipe:1",
+            wav_path,
         ]
         whisper_cmd = [
             "whisper-cli",
             "--model", str(model_path),
             "--language", "en",
             "--threads", str(threads),
-            "-f", "/dev/stdin",
+            "-f", wav_path,
         ]
 
         try:
-            ffmpeg_proc = subprocess.Popen(
-                ffmpeg_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            whisper_proc = subprocess.Popen(
-                whisper_cmd,
-                stdin=ffmpeg_proc.stdout,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            # Close Python's copy so ffmpeg gets SIGPIPE if whisper-cli exits early.
-            ffmpeg_proc.stdout.close()  # type: ignore[union-attr]
-
-            while whisper_proc.poll() is None:
+            # Phase 1: decode to WAV (cancellable)
+            ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, stderr=subprocess.DEVNULL)
+            while ffmpeg_proc.poll() is None:
                 if cancel.is_set():
-                    _log.info("Cancelling transcription of %s", session_dir.name)
-                    whisper_proc.terminate()
+                    _log.info("Cancelling transcription of %s (ffmpeg)", session_dir.name)
                     ffmpeg_proc.terminate()
                     try:
-                        whisper_proc.wait(timeout=5)
                         ffmpeg_proc.wait(timeout=5)
                     except subprocess.TimeoutExpired:
-                        whisper_proc.kill()
                         ffmpeg_proc.kill()
                     return None
                 time.sleep(0.5)
 
+            if ffmpeg_proc.returncode != 0:
+                _log.error(
+                    "ffmpeg exited %d for %s",
+                    ffmpeg_proc.returncode,
+                    session_dir.name,
+                )
+                return None
+
+            # Phase 2: transcribe WAV (cancellable)
+            whisper_proc = subprocess.Popen(
+                whisper_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            while whisper_proc.poll() is None:
+                if cancel.is_set():
+                    _log.info("Cancelling transcription of %s (whisper)", session_dir.name)
+                    whisper_proc.terminate()
+                    try:
+                        whisper_proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        whisper_proc.kill()
+                    return None
+                time.sleep(0.5)
+
             stdout_data = whisper_proc.stdout.read()  # type: ignore[union-attr]
-            ffmpeg_proc.wait()
 
             if whisper_proc.returncode != 0:
                 _log.error(
@@ -142,6 +155,10 @@ def transcribe_session(
 
     finally:
         os.unlink(filelist_path)
+        try:
+            os.unlink(wav_path)
+        except FileNotFoundError:
+            pass  # ffmpeg may not have created it if it failed early
 
     segments: list[dict] = []
     for line in stdout_data.decode("utf-8", errors="replace").splitlines():
