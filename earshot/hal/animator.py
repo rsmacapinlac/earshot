@@ -9,6 +9,7 @@ import time
 from earshot.hal.protocols import LedPattern
 
 _SLOW_PERIOD_S = 1.0
+_VERY_SLOW_PERIOD_S = 1.75
 _FAST_BLINK_PERIOD_S = 0.2
 
 
@@ -99,6 +100,10 @@ class LedAnimator:
             self._led.set_target_rgb(r, g, b)
             if pattern == LedPattern.SLOW_PULSE:
                 phase = (now % _SLOW_PERIOD_S) / _SLOW_PERIOD_S
+                factor = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(phase * 2 * math.pi))
+                self._led.render_scaled(factor)
+            elif pattern == LedPattern.VERY_SLOW_PULSE:
+                phase = (now % _VERY_SLOW_PERIOD_S) / _VERY_SLOW_PERIOD_S
                 factor = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(phase * 2 * math.pi))
                 self._led.render_scaled(factor)
             elif pattern == LedPattern.FAST_BLINK:

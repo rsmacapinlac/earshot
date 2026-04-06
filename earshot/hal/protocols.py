@@ -10,6 +10,7 @@ class LedPattern(Enum):
     OFF = auto()
     SOLID = auto()
     SLOW_PULSE = auto()
+    VERY_SLOW_PULSE = auto()  # ~1.75s cycle — used for TRANSCRIBING state (amber)
     FAST_BLINK = auto()
     FADE_OFF = auto()
     DOUBLE_FLASH_GREEN = auto()
