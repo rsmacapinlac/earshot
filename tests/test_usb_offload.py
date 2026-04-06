@@ -199,6 +199,65 @@ class TestMoveRecordingsToStick:
         stick.mkdir()
         move_recordings_to_stick(tmp_path / "nonexistent", stick)  # should not raise
 
+    def test_moves_session_without_transcript(self, tmp_path):
+        """A session that has not been transcribed (no transcript.md) offloads normally."""
+        recordings = tmp_path / "recordings"
+        stick = tmp_path / "stick"
+        stick.mkdir()
+        self._make_session(recordings, "20260101T120000", {"audio-001.opus": b"audio"})
+
+        move_recordings_to_stick(recordings, stick)
+
+        assert (stick / "20260101T120000" / "audio-001.opus").exists()
+        assert not (stick / "20260101T120000" / "transcript.md").exists()
+        assert not (recordings / "20260101T120000").exists()
+
+    def test_moves_session_with_transcript(self, tmp_path):
+        """A fully-transcribed session (with transcript.md) offloads including the transcript."""
+        recordings = tmp_path / "recordings"
+        stick = tmp_path / "stick"
+        stick.mkdir()
+        self._make_session(
+            recordings,
+            "20260101T120000",
+            {
+                "audio-001.opus": b"audio",
+                "transcript.md": b"# Recording\n",
+            },
+        )
+
+        move_recordings_to_stick(recordings, stick)
+
+        dest = stick / "20260101T120000"
+        assert (dest / "audio-001.opus").exists()
+        assert (dest / "transcript.md").read_bytes() == b"# Recording\n"
+        assert not (recordings / "20260101T120000").exists()
+
+    def test_moves_mixed_sessions_regardless_of_transcript_presence(self, tmp_path):
+        """Sessions with and without transcript.md all offload; none are left behind."""
+        recordings = tmp_path / "recordings"
+        stick = tmp_path / "stick"
+        stick.mkdir()
+        # Session 1: transcribed
+        self._make_session(
+            recordings,
+            "20260101T100000",
+            {"audio-001.opus": b"a1", "transcript.md": b"done"},
+        )
+        # Session 2: not yet transcribed
+        self._make_session(
+            recordings,
+            "20260101T110000",
+            {"audio-001.opus": b"a2", "audio-002.opus": b"a3"},
+        )
+
+        move_recordings_to_stick(recordings, stick)
+
+        assert (stick / "20260101T100000" / "transcript.md").exists()
+        assert (stick / "20260101T110000" / "audio-001.opus").exists()
+        assert not (stick / "20260101T110000" / "transcript.md").exists()
+        assert list(recordings.glob("*/")) == []
+
 
 # ---------------------------------------------------------------------------
 # App-level USB offload integration tests

@@ -25,6 +25,7 @@ _GPIO_BL = 22     # Backlight enable (active-low)
 
 # LED animation timing (mirrors LedAnimator in animator.py)
 _SLOW_PERIOD_S = 1.0
+_VERY_SLOW_PERIOD_S = 1.75
 _FAST_BLINK_PERIOD_S = 0.2
 
 # LCD geometry (240×280 px, ST7789P3)
@@ -43,6 +44,8 @@ _PALETTE: dict[str, tuple[int, int, int]] = {
     "USB_TRANSFER_COMPLETE": (32, 128, 255),
     "USB_TRANSFER_ERROR": (255, 128, 0),
     "DISK_FULL": (255, 128, 0),
+    "TRANSCRIBING": (255, 179, 0),      # amber #FFB300
+    "TRANSCRIPTION_DONE": (255, 179, 0),
     "SHUTDOWN": (255, 255, 255),
 }
 _DEFAULT_COLOUR = (255, 255, 255)
@@ -69,6 +72,8 @@ _ZONE_A_LABELS: dict[str, str] = {
     "USB_TRANSFER_COMPLETE": "DONE",
     "USB_TRANSFER_ERROR": "TRANSFER ERROR",
     "DISK_FULL": "STORAGE FULL",
+    "TRANSCRIBING": "TRANSCRIBING",
+    "TRANSCRIPTION_DONE": "DONE",
     "SHUTDOWN": "GOODBYE",
 }
 
@@ -252,6 +257,10 @@ class WhisplayLED(LEDDriver):
                 phase = (now % _SLOW_PERIOD_S) / _SLOW_PERIOD_S
                 brightness = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(phase * 2 * math.pi))
                 self._apply(r, g, b, brightness)
+            elif pattern == LedPattern.VERY_SLOW_PULSE:
+                phase = (now % _VERY_SLOW_PERIOD_S) / _VERY_SLOW_PERIOD_S
+                brightness = 0.35 + 0.65 * (0.5 + 0.5 * math.sin(phase * 2 * math.pi))
+                self._apply(r, g, b, brightness)
             elif pattern == LedPattern.FAST_BLINK:
                 on = int(now / _FAST_BLINK_PERIOD_S) % 2 == 0
                 self._apply(r, g, b, 1.0 if on else 0.0)
@@ -415,6 +424,12 @@ def _zone_c(state: str, data: dict[str, Any]) -> str:
     if state == "DISK_FULL":
         pct = data.get("disk_pct", "?")
         return f"{pct}% used"
+    if state == "TRANSCRIBING":
+        pos = data.get("queue_pos", "?")
+        total = data.get("queue_total", "?")
+        return f"Session {pos} of {total}"
+    if state == "TRANSCRIPTION_DONE":
+        return "Transcription complete"
     if state == "SHUTDOWN":
         return "Safe to unplug soon"
     return ""
@@ -452,4 +467,9 @@ def _zone_d(state: str, data: dict[str, Any]) -> str:
         return "Remove files to record"
     if state == "USB_TRANSFER":
         return f"{disk_pct}% disk" if disk_pct is not None else ""
+    if state == "TRANSCRIBING":
+        return data.get("session", "")
+    if state == "TRANSCRIPTION_DONE":
+        n = data.get("sessions_transcribed", "")
+        return f"{n} sessions" if n != "" else ""
     return ""

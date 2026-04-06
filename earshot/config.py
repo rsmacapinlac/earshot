@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
@@ -52,12 +52,22 @@ class StorageConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TranscriptionConfig:
+    enabled: bool
+    model: Literal["tiny.en", "base.en"]
+    threads: int
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     hardware: HardwareConfig
     audio: AudioConfig
     recording: RecordingConfig
     storage: StorageConfig
     config_path: Path
+    transcription: TranscriptionConfig = field(
+        default_factory=lambda: TranscriptionConfig(enabled=True, model="tiny.en", threads=2)
+    )
 
 
 def config_file_path(explicit: Path | None) -> Path:
@@ -93,6 +103,19 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
         if recordings_dir_raw
         else data_dir / "recordings"
     )
+    tx_raw = raw.get("transcription", {})
+    if not isinstance(tx_raw, Mapping):
+        tx_raw = {}
+    tx_model = str(tx_raw.get("model", "tiny.en")).strip().lower()
+    if tx_model not in ("tiny.en", "base.en"):
+        raise ValueError(
+            f"config.toml [transcription] model must be 'tiny.en' or 'base.en', got {tx_model!r}"
+        )
+    tx_threads = int(tx_raw.get("threads", 2))
+    if tx_threads < 1:
+        raise ValueError(
+            f"config.toml [transcription] threads must be >= 1, got {tx_threads}"
+        )
     return AppConfig(
         hardware=HardwareConfig(hat=hat_val),  # type: ignore[arg-type]
         audio=AudioConfig(
@@ -123,6 +146,11 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
             recordings_dir=recordings_dir,
         ),
         config_path=path,
+        transcription=TranscriptionConfig(
+            enabled=bool(tx_raw.get("enabled", True)),
+            model=tx_model,  # type: ignore[arg-type]
+            threads=tx_threads,
+        ),
     )
 
 

@@ -46,7 +46,6 @@ The output file is `transcript.md` in the session directory. The format is compa
 
 ```markdown
 # Recording — YYYY-MM-DD HH:MM:SS
-**Device:** earshot
 **Duration:** Xh Xm Xs
 **Processed:** YYYY-MM-DD HH:MM:SS
 
@@ -57,7 +56,6 @@ The output file is `transcript.md` in the session directory. The format is compa
 ```
 
 - The header timestamp is the session directory name parsed to a human-readable date.
-- **Device** is the fixed string `earshot`.
 - **Duration** is the total audio duration across all chunks, derived from the concatenated audio.
 - **Processed** is the wall-clock time transcription completed.
 - Each segment line uses `[MM:SS]` for timestamps under one hour, `[HH:MM:SS]` for one hour or beyond.

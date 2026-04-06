@@ -32,6 +32,23 @@ def _udc_state() -> str:
         return "unavailable"
 
 
+def _gadget_suspended() -> bool:
+    """Return True if the USB gadget bus is suspended by the host.
+
+    macOS safe-ejects the drive without physically unplugging — the UDC stays
+    in "configured" state but the host suspends the bus.  The gadget.0/suspended
+    sysfs attribute reflects this.  We resolve the UDC symlink to find the
+    actual device directory so this works on Pi 4B and Pi Zero 2W alike.
+    """
+    try:
+        # /sys/class/udc/3f980000.usb → /sys/devices/platform/soc/3f980000.usb/udc/3f980000.usb
+        # gadget.0 lives two levels up: /sys/devices/platform/soc/3f980000.usb/gadget.0/
+        udc_real = Path(os.path.realpath(str(_UDC_STATE_PATH.parent)))
+        return (udc_real.parent.parent / "gadget.0" / "suspended").read_text().strip() == "1"
+    except OSError:
+        return False
+
+
 def find_usb_device() -> tuple[str, str | None] | None:
     """Return ``(device_path, mountpoint_or_None)`` for the first removable vfat
     partition, or ``None`` if no removable vfat device is present.
@@ -156,6 +173,15 @@ class GadgetOffload:
         # app can show IDLE while g_mass_storage is loading and TRANSFER only
         # once the laptop actually sees the drive.
         self.host_connected = threading.Event()
+        # Sessions exported into the current image (populated by activate()).
+        # _sync_deletions uses this to avoid deleting sessions that were never
+        # in the image (e.g. recorded while the gadget was active, or when the
+        # image was built from an empty/corrupt state).
+        self._exported_sessions: set[str] = set()
+        # True once UDC reports "not attached" after a deactivation — prevents
+        # the monitor from immediately re-arming pending if the cable is still
+        # physically connected when the gadget is deactivated.
+        self._saw_detach: bool = True  # guarded by _lock
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -197,6 +223,10 @@ class GadgetOffload:
             if self._active:
                 return True
         self._recordings_dir.mkdir(parents=True, exist_ok=True)
+        # Record which sessions exist now — only these can be deleted by the user.
+        self._exported_sessions = {
+            d.name for d in self._recordings_dir.iterdir() if d.is_dir()
+        } if self._recordings_dir.exists() else set()
         try:
             subprocess.run(
                 ["/usr/local/bin/earshot-gadget-on", "activate", str(self._recordings_dir)],
@@ -209,6 +239,7 @@ class GadgetOffload:
                 "gadget: earshot-gadget-on failed: %s",
                 exc.stderr.decode().strip() if exc.stderr else exc,
             )
+            self._exported_sessions = set()
             return False
 
         with self._lock:
@@ -242,10 +273,11 @@ class GadgetOffload:
                 timeout=10.0,
                 env=env,
             )
-            # mdir -b output: one path per line, e.g. "/20260402T101613"
+            # mdir -b -i IMAGE :: output: one path per line, e.g. "::/20260402T101613".
+            # Strip the "::" drive prefix that mtools adds when using the -i flag.
             image_sessions: set[str] = set()
             for line in result.stdout.splitlines():
-                name = line.strip().lstrip("/").rstrip("/").upper()
+                name = line.strip().lstrip(":").lstrip("/").rstrip("/").upper()
                 if name:
                     image_sessions.add(name)
         except Exception as exc:
@@ -255,9 +287,24 @@ class GadgetOffload:
         if not self._recordings_dir.exists():
             return
 
+        # If the image appears empty but we exported sessions, something went
+        # wrong with the image (e.g. stale module loaded with no backing file).
+        # Skip sync entirely rather than deleting sessions the user never saw.
+        if not image_sessions and self._exported_sessions:
+            _log.warning(
+                "gadget: sync: image appears empty but %d session(s) were exported — "
+                "skipping deletion sync to avoid data loss",
+                len(self._exported_sessions),
+            )
+            return
+
         removed = 0
         for session_dir in sorted(self._recordings_dir.iterdir()):
             if not session_dir.is_dir():
+                continue
+            # Only delete sessions that were actually in the image.
+            # Sessions recorded after activation are never touched.
+            if session_dir.name not in self._exported_sessions:
                 continue
             if session_dir.name.upper() not in image_sessions:
                 _log.info("gadget: sync: removing %s (deleted on laptop)", session_dir.name)
@@ -286,6 +333,7 @@ class GadgetOffload:
             _log.warning("gadget: earshot-gadget-off failed: %s", exc)
         with self._lock:
             self._active = False
+            self._saw_detach = False  # require physical unplug before re-arming
         self.host_connected.clear()
         _log.info("gadget: disconnected")
 
@@ -305,20 +353,34 @@ class GadgetOffload:
         host enumerates it we swap in ``g_mass_storage`` via the activate path.
         """
         probe_loaded = False
+        prev_active = False
 
         while not self._stop_event.wait(2.0):
             with self._lock:
                 active = self._active
 
+            # Detect active→inactive transition regardless of which thread
+            # caused the deactivation (monitor disconnect vs app button press).
+            # Without this, a button-press deactivation leaves probe_loaded=True
+            # and g_zero never gets reloaded after earshot-gadget-off unloads it.
+            if prev_active and not active:
+                probe_loaded = False
+            prev_active = active
+
             if active:
                 # Post-activation: watch UDC state for actual host connect/disconnect.
                 udc = _udc_state()
-                connected = udc in ("configured", "addressed")
+                # "suspended" (gadget.0/suspended == 1) means the host suspended the
+                # bus — macOS does this on safe-eject without physical unplug.
+                # UDC stays "configured" in that case, so check both.
+                bus_suspended = _gadget_suspended()
+                connected = udc in ("configured", "addressed") and not bus_suspended
                 if connected and not self.host_connected.is_set():
                     _log.info("gadget: USB host enumerated (UDC=%s)", udc)
                     self.host_connected.set()
                 elif not connected and self.host_connected.is_set():
-                    _log.info("gadget: USB host disconnected (UDC=%s)", udc)
+                    reason = f"UDC={udc}, suspended={bus_suspended}"
+                    _log.info("gadget: USB host disconnected (%s)", reason)
                     self.host_connected.clear()
                     self.pending.clear()
                     self._deactivate()
@@ -327,9 +389,16 @@ class GadgetOffload:
             else:
                 # Pre-activation: detect cable insertion.
 
+                # Update saw_detach: once UDC reports no cable, we can re-arm.
+                udc_now = _udc_state()
+                with self._lock:
+                    if udc_now in ("not attached", "unavailable"):
+                        self._saw_detach = True
+                    saw_detach = self._saw_detach
+
                 # Pi 4B: direct VBUS sysfs path.
                 if self._direct_vbus():
-                    if not self.pending.is_set():
+                    if not self.pending.is_set() and saw_detach:
                         _log.info("gadget: VBUS detected via power_supply sysfs")
                         self.pending.set()
                     continue
@@ -350,7 +419,10 @@ class GadgetOffload:
                     continue
 
                 # Probe loaded — check if a host has connected.
-                if _udc_state() in ("configured", "addressed") and not self.pending.is_set():
+                # Guard with saw_detach: don't re-arm if cable was never removed
+                # after the last deactivation (prevents immediate re-trigger after
+                # button press or host-disconnect while cable stays plugged in).
+                if udc_now in ("configured", "addressed") and not self.pending.is_set() and saw_detach:
                     _log.info("gadget: VBUS detected via g_zero probe")
                     self.pending.set()
                     # g_zero stays loaded; earshot-gadget-on activate will swap it out.
