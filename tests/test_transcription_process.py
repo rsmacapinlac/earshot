@@ -164,6 +164,36 @@ class TestTranscribeSession:
 
         assert result == []
 
+    def test_uses_concat_demuxer_not_concat_protocol(self, tmp_path):
+        """ffmpeg must be invoked with -f concat (demuxer) not concat: protocol.
+
+        The concat: protocol raw-concatenates bytes and corrupts OGG/Opus containers.
+        """
+        d = self._make_session(tmp_path)
+        model = self._make_model(tmp_path)
+
+        mock_ffmpeg = MagicMock()
+        mock_ffmpeg.stdout = MagicMock()
+        mock_ffmpeg.wait.return_value = 0
+
+        mock_whisper = MagicMock()
+        mock_whisper.poll.side_effect = [None, 0]
+        mock_whisper.returncode = 0
+        mock_whisper.stdout.read.return_value = b""
+
+        with patch(
+            "earshot.transcription.process.subprocess.Popen",
+            side_effect=[mock_ffmpeg, mock_whisper],
+        ) as mock_popen:
+            transcribe_session(d, model, threads=1, cancel=threading.Event())
+
+        ffmpeg_args = mock_popen.call_args_list[0][0][0]
+        assert "-f" in ffmpeg_args
+        concat_idx = ffmpeg_args.index("-f")
+        assert ffmpeg_args[concat_idx + 1] == "concat"
+        # Must not use the concat: protocol (which corrupts OGG/Opus containers)
+        assert not any(a.startswith("concat:") for a in ffmpeg_args)
+
     def test_blank_text_segments_excluded(self, tmp_path):
         d = self._make_session(tmp_path)
         model = self._make_model(tmp_path)
