@@ -41,8 +41,10 @@ def _gadget_suspended() -> bool:
     actual device directory so this works on Pi 4B and Pi Zero 2W alike.
     """
     try:
+        # /sys/class/udc/3f980000.usb → /sys/devices/platform/soc/3f980000.usb/udc/3f980000.usb
+        # gadget.0 lives two levels up: /sys/devices/platform/soc/3f980000.usb/gadget.0/
         udc_real = Path(os.path.realpath(str(_UDC_STATE_PATH.parent)))
-        return (udc_real / "gadget.0" / "suspended").read_text().strip() == "1"
+        return (udc_real.parent.parent / "gadget.0" / "suspended").read_text().strip() == "1"
     except OSError:
         return False
 
