@@ -156,6 +156,11 @@ class GadgetOffload:
         # app can show IDLE while g_mass_storage is loading and TRANSFER only
         # once the laptop actually sees the drive.
         self.host_connected = threading.Event()
+        # Sessions exported into the current image (populated by activate()).
+        # _sync_deletions uses this to avoid deleting sessions that were never
+        # in the image (e.g. recorded while the gadget was active, or when the
+        # image was built from an empty/corrupt state).
+        self._exported_sessions: set[str] = set()
 
     # ── public API ────────────────────────────────────────────────────────────
 
@@ -197,6 +202,10 @@ class GadgetOffload:
             if self._active:
                 return True
         self._recordings_dir.mkdir(parents=True, exist_ok=True)
+        # Record which sessions exist now — only these can be deleted by the user.
+        self._exported_sessions = {
+            d.name for d in self._recordings_dir.iterdir() if d.is_dir()
+        } if self._recordings_dir.exists() else set()
         try:
             subprocess.run(
                 ["/usr/local/bin/earshot-gadget-on", "activate", str(self._recordings_dir)],
@@ -209,6 +218,7 @@ class GadgetOffload:
                 "gadget: earshot-gadget-on failed: %s",
                 exc.stderr.decode().strip() if exc.stderr else exc,
             )
+            self._exported_sessions = set()
             return False
 
         with self._lock:
@@ -255,9 +265,24 @@ class GadgetOffload:
         if not self._recordings_dir.exists():
             return
 
+        # If the image appears empty but we exported sessions, something went
+        # wrong with the image (e.g. stale module loaded with no backing file).
+        # Skip sync entirely rather than deleting sessions the user never saw.
+        if not image_sessions and self._exported_sessions:
+            _log.warning(
+                "gadget: sync: image appears empty but %d session(s) were exported — "
+                "skipping deletion sync to avoid data loss",
+                len(self._exported_sessions),
+            )
+            return
+
         removed = 0
         for session_dir in sorted(self._recordings_dir.iterdir()):
             if not session_dir.is_dir():
+                continue
+            # Only delete sessions that were actually in the image.
+            # Sessions recorded after activation are never touched.
+            if session_dir.name not in self._exported_sessions:
                 continue
             if session_dir.name.upper() not in image_sessions:
                 _log.info("gadget: sync: removing %s (deleted on laptop)", session_dir.name)
