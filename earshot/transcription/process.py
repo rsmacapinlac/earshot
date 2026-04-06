@@ -164,12 +164,14 @@ def transcribe_session(
         except FileNotFoundError:
             pass  # ffmpeg may not have created it if it failed early
 
+    _NOISE_TOKENS = {"[BLANK_AUDIO]", "[Music]", "[Applause]", "[Laughter]"}
+
     segments: list[dict] = []
     for line in stdout_data.decode("utf-8", errors="replace").splitlines():
         m = _SEGMENT_RE.match(line.strip())
         if m:
             text = m.group(3).strip()
-            if text:
+            if text and text not in _NOISE_TOKENS:
                 segments.append({
                     "from_ms": _ts_to_ms(m.group(1)),
                     "to_ms": _ts_to_ms(m.group(2)),
