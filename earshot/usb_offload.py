@@ -351,10 +351,19 @@ class GadgetOffload:
         host enumerates it we swap in ``g_mass_storage`` via the activate path.
         """
         probe_loaded = False
+        prev_active = False
 
         while not self._stop_event.wait(2.0):
             with self._lock:
                 active = self._active
+
+            # Detect active→inactive transition regardless of which thread
+            # caused the deactivation (monitor disconnect vs app button press).
+            # Without this, a button-press deactivation leaves probe_loaded=True
+            # and g_zero never gets reloaded after earshot-gadget-off unloads it.
+            if prev_active and not active:
+                probe_loaded = False
+            prev_active = active
 
             if active:
                 # Post-activation: watch UDC state for actual host connect/disconnect.
