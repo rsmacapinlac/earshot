@@ -3,7 +3,6 @@
 Output format (earshot-tui compatible)::
 
     # Recording — YYYY-MM-DD HH:MM:SS
-    **Device:** earshot
     **Duration:** Xh Xm Xs
     **Processed:** YYYY-MM-DD HH:MM:SS
 
@@ -70,7 +69,6 @@ def write_transcript(
 
     lines = [
         f"# Recording — {recording_header}",
-        f"**Device:** earshot",
         f"**Duration:** {duration_str}",
         f"**Processed:** {processed_str}",
         "",

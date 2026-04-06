@@ -62,12 +62,12 @@ class TestWriteTranscript:
         text = (session_dir / "transcript.md").read_text()
         assert "# Recording — 2026-04-01 14:30:22" in text
 
-    def test_device_field(self, tmp_path):
+    def test_no_device_field(self, tmp_path):
         session_dir = tmp_path / "20260401T143022"
         session_dir.mkdir()
         write_transcript(session_dir, [], processed_at=self._fixed_dt())
         text = (session_dir / "transcript.md").read_text()
-        assert "**Device:** earshot" in text
+        assert "**Device:**" not in text
 
     def test_processed_field(self, tmp_path):
         session_dir = tmp_path / "20260401T143022"
