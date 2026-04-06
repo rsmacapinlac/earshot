@@ -18,6 +18,18 @@ SEEED_URL="https://github.com/HinTak/seeed-voicecard.git"
 
 log()  { echo "==> $*"; }
 info() { echo "    $*"; }
+
+# Return a safe job count for cmake builds.  On devices with < 1 GB RAM
+# (e.g. Pi Zero 2W) parallel cc1plus processes exhaust memory; cap at 2.
+_build_jobs() {
+    local total_kb
+    total_kb=$(awk '/^MemTotal/ { print $2 }' /proc/meminfo)
+    if [ "${total_kb:-0}" -lt 1048576 ]; then
+        echo 2
+    else
+        nproc
+    fi
+}
 err()  { echo "ERROR: $*" >&2; }
 
 error_handler() {
@@ -105,7 +117,7 @@ if $TRANSCRIPTION_ONLY; then
             cmake -B "$_src_dir/build" -S "$_src_dir" \
                 -DWHISPER_BUILD_TESTS=OFF \
                 -DBUILD_SHARED_LIBS=OFF
-            cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(nproc)"
+            cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(_build_jobs)"
             sudo install -m 755 "$_src_dir/build/bin/whisper-cli" /usr/local/bin/whisper-cli
             rm -rf "$_src_dir"
             info "whisper-cli installed from source."
@@ -378,7 +390,7 @@ else
             cmake -B "$_src_dir/build" -S "$_src_dir" \
                 -DWHISPER_BUILD_TESTS=OFF \
                 -DBUILD_SHARED_LIBS=OFF
-            cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(nproc)"
+            cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(_build_jobs)"
             sudo install -m 755 "$_src_dir/build/bin/whisper-cli" /usr/local/bin/whisper-cli
             rm -rf "$_src_dir"
             info "whisper-cli installed from source."
