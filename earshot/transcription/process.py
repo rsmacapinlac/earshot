@@ -90,6 +90,7 @@ def transcribe_session(
             "ffmpeg", "-y", "-loglevel", "error",
             "-f", "concat", "-safe", "0",
             "-i", filelist_path,
+            "-af", "loudnorm",
             "-ar", "16000", "-ac", "1",
             wav_path,
         ]
