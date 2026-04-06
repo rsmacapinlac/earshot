@@ -41,12 +41,132 @@ INSTALL_GID="$(id -g)"
 REPO_DIR="$INSTALL_HOME/earshot"
 VENV_DIR="$REPO_DIR/.venv"
 
+SKIP_TRANSCRIPTION=false
+TRANSCRIPTION_ONLY=false
+for arg in "$@"; do
+    case "$arg" in
+        --no-transcription)   SKIP_TRANSCRIPTION=true ;;
+        --transcription-only) TRANSCRIPTION_ONLY=true ;;
+        *) err "Unknown argument: $arg"; exit 1 ;;
+    esac
+done
+
+# ── Transcription-only upgrade path ──────────────────────────────────────────
+# Installs whisper-cli + model, patches config.toml, restarts service.
+# Use this on an already-installed device when upgrading from v0.1.0 to v0.2.0.
+
+if $TRANSCRIPTION_ONLY; then
+    WHISPER_VERSION="v1.7.5"
+    WHISPER_BIN_URL="https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-linux-aarch64.tar.gz"
+    MODELS_DIR="$INSTALL_HOME/.local/share/earshot/models"
+    MODEL_FILE="ggml-tiny.en-q5_1.bin"
+    MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${MODEL_FILE}"
+
+    echo ""
+    echo "╔══════════════════════════════════════════╗"
+    echo "║   Earshot v0.2.0 — transcription setup  ║"
+    echo "╚══════════════════════════════════════════╝"
+    echo ""
+
+    # 1. Re-install Python package to pick up new earshot.transcription module.
+    log "Updating Python package..."
+    "$VENV_DIR/bin/pip" install --quiet -e "${REPO_DIR}[pi]"
+
+    # 2. Install whisper-cli if not already present.
+    if command -v whisper-cli &>/dev/null; then
+        info "whisper-cli already installed: $(command -v whisper-cli)"
+    else
+        log "Installing whisper.cpp binary (${WHISPER_VERSION})..."
+        _tmp_dir=$(mktemp -d)
+        if curl --silent --fail --location "$WHISPER_BIN_URL" \
+                | tar xz -C "$_tmp_dir" 2>/dev/null; then
+            _bin=$(find "$_tmp_dir" -name "whisper-cli" -type f | head -1)
+            if [ -n "$_bin" ]; then
+                sudo install -m 755 "$_bin" /usr/local/bin/whisper-cli
+                info "whisper-cli installed from pre-built binary."
+            else
+                info "Binary not found in archive — building from source..."
+                _bin=""
+            fi
+        else
+            info "Pre-built download failed — building from source..."
+            _bin=""
+        fi
+        rm -rf "$_tmp_dir"
+
+        if [ -z "${_bin:-}" ]; then
+            log "Building whisper.cpp from source (this takes a few minutes)..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+            _src_dir=$(mktemp -d)
+            git clone --depth=1 \
+                --branch "$WHISPER_VERSION" \
+                https://github.com/ggerganov/whisper.cpp.git \
+                "$_src_dir"
+            cmake -B "$_src_dir/build" -S "$_src_dir" -DWHISPER_BUILD_TESTS=OFF
+            cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(nproc)"
+            sudo install -m 755 "$_src_dir/build/bin/whisper-cli" /usr/local/bin/whisper-cli
+            rm -rf "$_src_dir"
+            info "whisper-cli installed from source."
+        fi
+    fi
+
+    # 3. Download model if not already present.
+    log "Downloading whisper model ($MODEL_FILE)..."
+    mkdir -p "$MODELS_DIR"
+    if [ ! -f "$MODELS_DIR/$MODEL_FILE" ]; then
+        curl --fail --location --output "$MODELS_DIR/$MODEL_FILE" "$MODEL_URL"
+        info "Model saved to $MODELS_DIR/$MODEL_FILE"
+    else
+        info "Model already present: $MODELS_DIR/$MODEL_FILE"
+    fi
+
+    # 4. Add [transcription] section to config.toml if missing.
+    log "Patching config.toml..."
+    "$VENV_DIR/bin/python" - <<'PYCFG'
+import sys
+from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
+import tomli_w
+
+config_path = Path.home() / "earshot" / "config.toml"
+raw = config_path.read_bytes()
+cfg = tomllib.loads(raw.decode())
+
+if "transcription" not in cfg:
+    cfg["transcription"] = {"enabled": True, "model": "tiny.en", "threads": 2}
+    config_path.write_bytes(tomli_w.dumps(cfg).encode())
+    print("    Added [transcription] section to config.toml")
+else:
+    print("    [transcription] already present — no changes made")
+PYCFG
+
+    # 5. Restart service to load new code and config.
+    log "Restarting earshot service..."
+    sudo systemctl restart earshot.service
+    sleep 2
+    systemctl is-active earshot.service && info "earshot is running." || info "earshot failed to start — check: journalctl -u earshot -n 30"
+
+    echo ""
+    echo "Done. Transcription is enabled."
+    echo "The device will transcribe completed sessions after 3 minutes of idle."
+    echo "LED turns amber while transcribing."
+    echo ""
+    exit 0
+fi
+
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║         Earshot Installer v0.4           ║"
+echo "║         Earshot Installer v0.5           ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 log "Installing for user: $INSTALL_USER (home: $INSTALL_HOME)"
+if $SKIP_TRANSCRIPTION; then
+    info "Transcription support: skipped (--no-transcription)"
+fi
 echo ""
 
 # ── HAT selection ────────────────────────────────────────────────────────────
@@ -208,12 +328,76 @@ log "Installing Python dependencies..."
 log "Installing Earshot package (editable) with Pi extras..."
 "$VENV_DIR/bin/pip" install --quiet -e "${REPO_DIR}[pi]"
 
+# ── whisper.cpp (FR-18) ──────────────────────────────────────────────────────
+
+WHISPER_VERSION="v1.7.5"
+WHISPER_BIN_URL="https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-linux-aarch64.tar.gz"
+MODELS_DIR="$INSTALL_HOME/.local/share/earshot/models"
+MODEL_FILE="ggml-tiny.en-q5_1.bin"
+MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${MODEL_FILE}"
+
+if $SKIP_TRANSCRIPTION; then
+    log "Skipping whisper.cpp and model download (--no-transcription)."
+    TRANSCRIPTION_ENABLED=false
+else
+    TRANSCRIPTION_ENABLED=true
+
+    if command -v whisper-cli &>/dev/null; then
+        info "whisper-cli already installed: $(command -v whisper-cli)"
+    else
+        log "Installing whisper.cpp binary (${WHISPER_VERSION})..."
+        _tmp_dir=$(mktemp -d)
+        if curl --silent --fail --location "$WHISPER_BIN_URL" \
+                | tar xz -C "$_tmp_dir" 2>/dev/null; then
+            # Archive contains a single binary or a directory — find whisper-cli.
+            _bin=$(find "$_tmp_dir" -name "whisper-cli" -type f | head -1)
+            if [ -n "$_bin" ]; then
+                sudo install -m 755 "$_bin" /usr/local/bin/whisper-cli
+                info "whisper-cli installed from pre-built binary."
+            else
+                err "whisper-cli binary not found in release archive — falling back to build."
+                _bin=""
+            fi
+        else
+            info "Pre-built binary download failed — building whisper.cpp from source..."
+            _bin=""
+        fi
+        rm -rf "$_tmp_dir"
+
+        if [ -z "$_bin" ]; then
+            # Build from source.
+            log "Building whisper.cpp from source (requires cmake)..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
+            _src_dir=$(mktemp -d)
+            git clone --depth=1 \
+                --branch "$WHISPER_VERSION" \
+                https://github.com/ggerganov/whisper.cpp.git \
+                "$_src_dir"
+            cmake -B "$_src_dir/build" -S "$_src_dir" -DWHISPER_BUILD_TESTS=OFF
+            cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(nproc)"
+            sudo install -m 755 "$_src_dir/build/bin/whisper-cli" /usr/local/bin/whisper-cli
+            rm -rf "$_src_dir"
+            info "whisper-cli installed from source."
+        fi
+    fi
+
+    log "Downloading whisper model ($MODEL_FILE, ~31 MB)..."
+    mkdir -p "$MODELS_DIR"
+    if [ ! -f "$MODELS_DIR/$MODEL_FILE" ]; then
+        curl --silent --fail --location --output "$MODELS_DIR/$MODEL_FILE" "$MODEL_URL"
+        info "Model saved to $MODELS_DIR/$MODEL_FILE"
+    else
+        info "Model already present: $MODELS_DIR/$MODEL_FILE"
+    fi
+fi
+
 # ── config.toml ─────────────────────────────────────────────────────────────
 
 log "Writing configuration file..."
 export CONFIG_PATH="$REPO_DIR/config.toml"
 export HAT_VALUE="$HAT"
 export ALSA_PCM_VALUE="$ALSA_PCM"
+export TRANSCRIPTION_ENABLED_VALUE="$TRANSCRIPTION_ENABLED"
 "$VENV_DIR/bin/python" - <<'PYCFG'
 import os
 from pathlib import Path
@@ -223,6 +407,7 @@ import tomli_w
 config_path = Path(os.environ["CONFIG_PATH"])
 hat = os.environ["HAT_VALUE"]
 alsa_pcm = os.environ["ALSA_PCM_VALUE"]
+transcription_enabled = os.environ["TRANSCRIPTION_ENABLED_VALUE"].lower() == "true"
 
 cfg = {
     "hardware": {
@@ -247,6 +432,11 @@ cfg = {
     "display": {
         "brightness": 80,
     },
+    "transcription": {
+        "enabled": transcription_enabled,
+        "model": "tiny.en",
+        "threads": 2,
+    },
 }
 
 header = (
@@ -262,7 +452,11 @@ header = (
     "# recording.chunk_duration_seconds — length of each audio chunk (default: 900 = 15 min).\n"
     "#\n"
     "# storage.recordings_dir — override recordings destination (default: data_dir/recordings).\n"
-    "#   Example: recordings_dir = \"/mnt/usb/earshot-recordings\"\n\n"
+    "#   Example: recordings_dir = \"/mnt/usb/earshot-recordings\"\n"
+    "#\n"
+    "# transcription.enabled — set to false to disable on-device transcription.\n"
+    "# transcription.model  — 'tiny.en' (default, Pi Zero 2W safe) or 'base.en' (Pi 4B).\n"
+    "# transcription.threads — whisper-cli thread count (default: 2).\n\n"
 )
 
 config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -418,6 +612,11 @@ echo "║                                                              ║"
 echo "║  After boot:  sudo systemctl status earshot                 ║"
 echo "║               journalctl -u earshot -f                       ║"
 echo "║               arecord -l   # confirm audio card             ║"
+if ! $SKIP_TRANSCRIPTION; then
+    echo "║                                                              ║"
+    echo "║  Transcription: amber LED pulsates while transcribing.      ║"
+    echo "║  Disable: set transcription.enabled = false in config.toml ║"
+fi
 if [ "$HAT" = "whisplay" ]; then
 echo "║                                                              ║"
 echo "║  Whisplay HAT: plug into a laptop USB port to offload       ║"
