@@ -292,18 +292,27 @@ else
     ALSA_PCM="plughw:CARD=wm8960soundcard,DEV=0"
 
     # The WM8960 driver defaults leave the input boost preamp disconnected from
-    # the ADC, producing near-silence on capture.  Enable the boost path and
-    # persist via alsactl so the setting survives reboots.
-    log "Configuring WM8960 capture mixer (enabling input boost path)..."
+    # the ADC and the capture gain too low for clear recordings.  Configure the
+    # full capture chain and persist via alsactl so settings survive reboots:
+    #   - Input Mixer Boost: connects mic preamp output to ADC (required)
+    #   - LINPUT1 boost: +20 dB analog boost stage before the ADC
+    #   - Capture (PGA): +30 dB mic preamp gain (maximum)
+    log "Configuring WM8960 capture mixer..."
     if command -v amixer &>/dev/null; then
-        amixer -c wm8960soundcard sset "Left Input Mixer Boost"  on >/dev/null
-        amixer -c wm8960soundcard sset "Right Input Mixer Boost" on >/dev/null
+        amixer -c wm8960soundcard sset "Left Input Mixer Boost"           on >/dev/null
+        amixer -c wm8960soundcard sset "Right Input Mixer Boost"          on >/dev/null
+        amixer -c wm8960soundcard sset "Left Input Boost Mixer LINPUT1"    2 >/dev/null
+        amixer -c wm8960soundcard sset "Right Input Boost Mixer RINPUT1"   2 >/dev/null
+        amixer -c wm8960soundcard sset "Capture"                          63 >/dev/null
         sudo alsactl store
         info "WM8960 capture mixer configured and saved."
     else
         err "amixer not found — run manually after reboot:"
         err "  amixer -c wm8960soundcard sset 'Left Input Mixer Boost' on"
         err "  amixer -c wm8960soundcard sset 'Right Input Mixer Boost' on"
+        err "  amixer -c wm8960soundcard sset 'Left Input Boost Mixer LINPUT1' 2"
+        err "  amixer -c wm8960soundcard sset 'Right Input Boost Mixer RINPUT1' 2"
+        err "  amixer -c wm8960soundcard sset 'Capture' 63"
         err "  sudo alsactl store"
     fi
 fi
