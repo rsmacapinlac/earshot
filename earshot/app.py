@@ -692,10 +692,6 @@ class EarshotApp:
             queue = pending_sessions(recordings_root(cfg))
             total = transcribed + len(queue)
 
-        if transcribed:
-            hal.display.update("TRANSCRIPTION_DONE", {"sessions_transcribed": transcribed})
-            time.sleep(3.0)
-
         return "done"
 
     # ── USB stick offload (FR-11) ────────────────────────────────────────────
