@@ -23,6 +23,7 @@ from earshot.storage import (
     recording_directory,
     recordings_root,
 )
+from earshot.transcription import pending_sessions, transcribe_session, write_transcript
 from earshot.usb_offload import (
     GadgetOffload,
     eject_usb_device,
@@ -159,10 +160,25 @@ class EarshotApp:
             self._set_idle_led(False)
             _log.info("Ready: green = idle, orange = disk full, press button to record.")
 
-            action = self._wait_idle_button()
+            transcribe_after = (
+                time.monotonic() + 180.0
+                if self._cfg.transcription.enabled
+                else None
+            )
+            action = self._wait_idle_button(transcribe_after=transcribe_after)
             if action == "shutdown":
                 self._shutdown_sequence()
                 return
+            if action == "transcribe":
+                transcription_result = self._transcribing_session()
+                if transcription_result == "button":
+                    # Button pressed during transcription — start recording immediately.
+                    if not self._disk_blocked():
+                        if self._gadget is not None and self._gadget.is_active:
+                            self._gadget.deactivate()
+                        self._recording_session()
+                # USB/gadget post-recording state is handled on the next loop iteration.
+                continue
             if action != "click":
                 continue
 
@@ -197,8 +213,8 @@ class EarshotApp:
                         time.sleep(0.5)
                 self._set_idle_led(self._disk_blocked())
 
-    def _wait_idle_button(self) -> str:
-        """Wait for a debounced short click (record) or long hold (shutdown)."""
+    def _wait_idle_button(self, transcribe_after: float | None = None) -> str:
+        """Wait for a debounced short click (record), long hold (shutdown), or transcribe timeout."""
         hal = self._hal
         assert hal is not None
         hold = self._cfg.recording.shutdown_hold_seconds
@@ -249,6 +265,10 @@ class EarshotApp:
                     return "usb"
                 if _gadget_wants_activate():
                     return "gadget"
+                if transcribe_after is not None and time.monotonic() >= transcribe_after:
+                    if pending_sessions(recordings_root(self._cfg)):
+                        return "transcribe"
+                    transcribe_after = time.monotonic() + 180.0  # re-arm for next check
                 time.sleep(poll_s)
             time.sleep(poll_s)
             if not hal.button.pressed():
@@ -579,6 +599,93 @@ class EarshotApp:
             if cur and not prev_pressed:
                 return frames_recorded, "button"
             prev_pressed = cur
+
+    # ── Transcription (FR-14–FR-17) ──────────────────────────────────────────
+
+    def _transcribing_session(self) -> str:
+        """Process the transcription queue.
+
+        Iterates the pending queue FIFO, transcribing each session.  Returns
+        ``"button"`` if the user presses the button to start recording, or
+        ``"done"`` when the queue empties or a failure stops processing.
+        """
+        hal = self._hal
+        assert hal is not None
+        cfg = self._cfg
+
+        model_path = (
+            Path.home()
+            / ".local/share/earshot/models"
+            / f"ggml-{cfg.transcription.model}-q5_1.bin"
+        )
+
+        queue = pending_sessions(recordings_root(cfg))
+        total = len(queue)
+        transcribed = 0
+
+        while queue:
+            session_dir = queue[0]
+            pos = transcribed + 1
+
+            hal.led.set_colour_and_pattern(255, 179, 0, LedPattern.VERY_SLOW_PULSE)
+            hal.display.update(
+                "TRANSCRIBING",
+                {
+                    "queue_pos": pos,
+                    "queue_total": total,
+                    "session": session_dir.name,
+                },
+            )
+
+            cancel = threading.Event()
+            result_holder: list[list[dict] | None] = [None]
+
+            def _run(sd=session_dir, rh=result_holder, c=cancel) -> None:
+                rh[0] = transcribe_session(sd, model_path, cfg.transcription.threads, c)
+
+            t = threading.Thread(
+                target=_run,
+                name=f"earshot-transcribe-{session_dir.name}",
+                daemon=True,
+            )
+            t.start()
+
+            button_pressed = False
+            while t.is_alive():
+                if hal.button.pressed():
+                    cancel.set()
+                    t.join(timeout=10.0)
+                    button_pressed = True
+                    break
+                time.sleep(0.1)
+
+            if not button_pressed:
+                t.join()
+
+            if button_pressed:
+                return "button"
+
+            result = result_holder[0]
+            if result is None:
+                _log.error(
+                    "Transcription failed for %s — will retry on next idle window",
+                    session_dir.name,
+                )
+                return "done"
+
+            write_transcript(session_dir, result)
+            transcribed += 1
+            queue.pop(0)
+
+            # Re-scan in case new sessions arrived while we were transcribing.
+            queue = pending_sessions(recordings_root(cfg))
+            total = transcribed + len(queue)
+
+        if transcribed:
+            hal.display.update("TRANSCRIPTION_DONE", {"sessions_transcribed": transcribed})
+            time.sleep(3.0)
+
+        return "done"
 
     # ── USB stick offload (FR-11) ────────────────────────────────────────────
 
