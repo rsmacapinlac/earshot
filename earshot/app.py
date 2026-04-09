@@ -16,6 +16,7 @@ from earshot.config import AppConfig
 from earshot.hal import Hal, LedPattern, create_hal
 from earshot.hal.effects import flash_double_green, flash_fast_red_three_times, flash_single_blue
 from earshot.recording import StereoWavWriter, wav_to_opus_mono
+from earshot.status import Status, load_status, save_status
 from earshot.storage import (
     disk_usage_percent,
     is_over_disk_threshold,
@@ -183,7 +184,7 @@ class EarshotApp:
                         if self._gadget is not None and self._gadget.is_active:
                             self._gadget.deactivate()
                         self._recording_session()
-                # USB/gadget post-recording state is handled on the next loop iteration.
+                # USB stick insertion or end of queue handled on next loop iteration.
                 continue
             if action != "click":
                 continue
@@ -534,6 +535,16 @@ class EarshotApp:
                     {"chunk_num": chunk_num, "total_chunks": chunk_num},
                 )
                 flash_fast_red_three_times(hal)
+            else:
+                # Recording encoded successfully; save status for earshot-tui.
+                session_dt = datetime.strptime(session_stamp, "%Y%m%dT%H%M%S")
+                status = Status(
+                    status="downloaded",
+                    device="earshot",
+                    recorded_at=session_dt,
+                    duration=0.0,  # Duration will be probed by earshot-tui on import
+                )
+                save_status(session_dir, status)
 
             # Remove session dir if encoding left nothing behind.
             try:
@@ -616,9 +627,10 @@ class EarshotApp:
     def _transcribing_session(self) -> str:
         """Process the transcription queue.
 
-        Iterates the pending queue FIFO, transcribing each session.  Returns
-        ``"button"`` if the user presses the button to start recording, or
-        ``"done"`` when the queue empties or a failure stops processing.
+        Iterates the pending queue FIFO, transcribing each session.  Returns:
+        - ``"button"`` if the user presses the button to start recording
+        - ``"usb"`` if a USB stick is inserted
+        - ``"done"`` when the queue empties or a failure stops processing
         """
         hal = self._hal
         assert hal is not None
@@ -662,19 +674,28 @@ class EarshotApp:
             t.start()
 
             button_pressed = False
+            usb_pending = False
             while t.is_alive():
                 if hal.button.pressed():
                     cancel.set()
                     t.join(timeout=10.0)
                     button_pressed = True
                     break
+                if self._usb_stick_pending.is_set():
+                    cancel.set()
+                    t.join(timeout=10.0)
+                    usb_pending = True
+                    break
                 time.sleep(0.1)
 
-            if not button_pressed:
+            if not button_pressed and not usb_pending:
                 t.join()
 
             if button_pressed:
                 return "button"
+
+            if usb_pending:
+                return "usb"
 
             result = result_holder[0]
             if result is None:
@@ -685,6 +706,14 @@ class EarshotApp:
                 return "done"
 
             write_transcript(session_dir, result)
+
+            # Update status to transcribed for earshot-tui.
+            status = load_status(session_dir)
+            if status is not None:
+                status.status = "transcribed"
+                status.transcribed_at = datetime.now()
+                save_status(session_dir, status)
+
             transcribed += 1
             queue.pop(0)
 
