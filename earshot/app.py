@@ -675,6 +675,10 @@ class EarshotApp:
 
             write_transcript(session_dir, result)
 
+            # Delete session.wav to free disk space (recording chunks are kept for crash recovery).
+            session_wav = session_dir / "session.wav"
+            session_wav.unlink(missing_ok=True)
+
             # Update status to transcribed for earshot-tui.
             status = load_status(session_dir)
             if status is not None:
