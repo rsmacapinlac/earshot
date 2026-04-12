@@ -1,6 +1,6 @@
 """Implicit transcription queue derived from filesystem state (FR-14).
 
-A session is *pending* when its directory contains ``session.wav``
+A session is *pending* when its directory contains ``session.opus``
 but no ``transcript.md``.  Sessions are returned FIFO by directory
 name (which encodes the recording timestamp).
 """
@@ -18,6 +18,6 @@ def pending_sessions(recordings_dir: Path) -> list[Path]:
     for d in sorted(recordings_dir.iterdir()):
         if not d.is_dir():
             continue
-        if (d / "session.wav").exists() and not (d / "transcript.md").exists():
+        if (d / "session.opus").exists() and not (d / "transcript.md").exists():
             result.append(d)
     return result

@@ -35,9 +35,9 @@ def transcribe_session(
     On cancellation (*cancel* is set), transcription stops and ``None`` is returned.
     The session remains pending for the next idle window.
     """
-    wav_path = session_dir / "session.wav"
-    if not wav_path.exists():
-        _log.warning("transcribe_session: session.wav not found in %s", session_dir.name)
+    opus_path = session_dir / "session.opus"
+    if not opus_path.exists():
+        _log.warning("transcribe_session: session.opus not found in %s", session_dir.name)
         return None
 
     _log.info("Transcribing %s", session_dir.name)
@@ -46,9 +46,10 @@ def transcribe_session(
     if cancel.is_set():
         return None
 
-    # Transcribe WAV with faster_whisper (lazy segment iterator)
+    # Transcribe opus file with faster_whisper (lazy segment iterator)
+    # faster_whisper uses ffmpeg for audio decoding, so it can read opus directly
     try:
-        segments_iter, _info = model.transcribe(str(wav_path), language="en", beam_size=5)
+        segments_iter, _info = model.transcribe(str(opus_path), language="en", beam_size=5)
     except Exception as exc:
         _log.error("faster_whisper transcribe() failed for %s: %s", session_dir.name, exc)
         return None

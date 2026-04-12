@@ -14,10 +14,10 @@ from earshot.transcription.process import transcribe_session
 
 class TestTranscribeSession:
     def _make_session(self, root: Path) -> Path:
-        """Create a test session directory with a dummy session.wav file."""
+        """Create a test session directory with a dummy session.opus file."""
         d = root / "20260101T100000"
         d.mkdir()
-        (d / "session.wav").write_bytes(b"dummy wav data")
+        (d / "session.opus").write_bytes(b"dummy opus data")
         return d
 
     def _make_model(self, segments: list | None = None) -> MagicMock:

@@ -530,6 +530,8 @@ class EarshotApp:
                         sample_rate=cfg.audio.sample_rate,
                         bitrate_kbps=cfg.audio.opus_bitrate,
                     )
+                    # Delete session.wav immediately after successful encoding (transcription uses opus).
+                    session_wav.unlink(missing_ok=True)
                 except Exception as exc:
                     _log.error("Failed to encode opus for %s: %s", session_dir.name, exc)
                     # Continue without opus; transcription can still happen
@@ -674,10 +676,6 @@ class EarshotApp:
                 return "done"
 
             write_transcript(session_dir, result)
-
-            # Delete session.wav to free disk space (recording chunks are kept for crash recovery).
-            session_wav = session_dir / "session.wav"
-            session_wav.unlink(missing_ok=True)
 
             # Update status to transcribed for earshot-tui.
             status = load_status(session_dir)

@@ -115,8 +115,9 @@ class TestMultiChunkSession:
         dirs = session_dirs(tmp_path)
         assert len(dirs) == 1
         # Should have recording WAV and session.opus after post-recording encode
+        # (session.wav is deleted after encoding for space savings)
         assert (dirs[0] / "recording-001.wav").exists()
-        assert (dirs[0] / "session.wav").exists()
+        assert not (dirs[0] / "session.wav").exists()
         assert (dirs[0] / "session.opus").exists()
 
     def test_rollover_uses_same_directory(self, tmp_path):
@@ -181,8 +182,9 @@ class TestMultiChunkSession:
         dirs = session_dirs(tmp_path)
         assert len(dirs) == 1
         session_dir = dirs[0]
-        # Should have session.wav from concat and session.opus from encoding
-        assert (session_dir / "session.wav").exists()
+        # Should have session.opus from encoding
+        # (session.wav is deleted after encoding for space savings)
+        assert not (session_dir / "session.wav").exists()
         assert (session_dir / "session.opus").exists()
 
 
