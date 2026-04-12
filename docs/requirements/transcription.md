@@ -27,9 +27,10 @@ On-device transcription is an opt-in feature that converts completed recording s
 
 ## FR-15: Transcription Process
 
-- The `session.wav` file (created by concatenating all `recording-*.wav` chunks at the end of recording) is passed to `WhisperModel.transcribe()` with language set to English and configurable beam search width.
+- The `session.opus` file (created by encoding `session.wav` at the end of recording) is passed to `WhisperModel.transcribe()` with language set to English and configurable beam search width.
+- faster-whisper uses ffmpeg for audio decoding, so it can read opus files directly.
 - The model reads the audio file lazily during segment iteration; no decoding happens until iteration begins.
-- On success: `transcript.md` is written to the session directory. The session is no longer pending. The `session.wav` file may be deleted post-transcription (implementation detail).
+- On success: `transcript.md` is written to the session directory. The session is no longer pending.
 - On failure: no `transcript.md` is written. The session remains at the front of the queue. The failure is logged to the systemd journal. Transcription is retried on the next idle window.
 
 ---

@@ -34,12 +34,13 @@ The filesystem is the source of truth for recording state — no database is use
 | Directory contents | Meaning |
 |---|---|
 | `recording-NNN.wav` (×N) only | Recording in progress |
-| `recording-NNN.wav` (×N) + `session.wav` | Recording ended, chunks concatenated |
-| `recording-NNN.wav` (×N) + `session.wav` + `session.opus` | Recording encoded; session pending transcription |
-| `session.opus` + `transcript.md` | Session fully processed (encoded + transcribed) |
+| `recording-NNN.wav` (×N) + `session.opus` | Recording encoded; session pending transcription |
+| `recording-NNN.wav` (×N) + `session.opus` + `transcript.md` | Session fully processed (encoded + transcribed) |
 | `recording-NNN.wav` + `.failed_NNN` marker | Orphaned WAV from prior crash (recovery path) |
 
-On boot, any session directory containing `recording-*.wav` with no `session.wav` is treated as an interrupted recording — the individual WAV files are available for manual recovery (via `_recover_orphaned_wavs()`). A session with `session.wav` but no `session.opus` will have encoding retried. A session with `session.opus` but no `transcript.md` will be queued for transcription (if enabled).
+**Note:** `session.wav` (concatenated WAV file) is deleted immediately after encoding to save disk space (~94 MB per session). Transcription reads from `session.opus` instead.
+
+On boot, any session directory with `session.opus` but no `transcript.md` will be queued for transcription (if enabled).
 
 ---
 
