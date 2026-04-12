@@ -103,20 +103,21 @@ def session_dirs(tmp_path: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 class TestMultiChunkSession:
-    def test_single_chunk_creates_audio_001(self, tmp_path):
-        """Button press before chunk_duration produces audio-001.opus."""
+    def test_single_chunk_records_wav_and_creates_session_opus(self, tmp_path):
+        """Button press before chunk_duration produces recording-001.wav and session.opus."""
         button = StubButton()
         app = make_app(tmp_path, chunk_duration=10.0)
         app._hal = make_hal(button)
 
-        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
+        with patch("earshot.app.wav_to_opus_stereo", side_effect=stub_encode):
             run_session_then_stop(app, button)
 
         dirs = session_dirs(tmp_path)
         assert len(dirs) == 1
-        opus_files = sorted(dirs[0].glob("audio-*.opus"))
-        assert len(opus_files) == 1
-        assert opus_files[0].name == "audio-001.opus"
+        # Should have recording WAV and session.opus after post-recording encode
+        assert (dirs[0] / "recording-001.wav").exists()
+        assert (dirs[0] / "session.wav").exists()
+        assert (dirs[0] / "session.opus").exists()
 
     def test_rollover_uses_same_directory(self, tmp_path):
         """All chunks from a multi-rollover session share one session directory."""
@@ -124,37 +125,37 @@ class TestMultiChunkSession:
         app = make_app(tmp_path, chunk_duration=0.05)
         app._hal = make_hal(button)
 
-        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
+        with patch("earshot.app.wav_to_opus_stereo", side_effect=stub_encode):
             run_session_then_stop(app, button, delay=0.3)
 
         dirs = session_dirs(tmp_path)
         assert len(dirs) == 1, "All chunks must be stored in one session directory"
 
-    def test_rollover_produces_sequential_opus_files(self, tmp_path):
-        """Chunk files are numbered audio-001.opus, audio-002.opus, …"""
+    def test_rollover_produces_sequential_wav_files(self, tmp_path):
+        """Chunk files are numbered recording-001.wav, recording-002.wav, …"""
         button = StubButton()
         app = make_app(tmp_path, chunk_duration=0.05)
         app._hal = make_hal(button)
 
-        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
+        with patch("earshot.app.wav_to_opus_stereo", side_effect=stub_encode):
             run_session_then_stop(app, button, delay=0.3)
 
-        opus_files = sorted(session_dirs(tmp_path)[0].glob("audio-*.opus"))
-        assert len(opus_files) >= 2
-        for i, f in enumerate(opus_files, start=1):
-            assert f.name == f"audio-{i:03d}.opus", f"Unexpected filename {f.name}"
+        wav_files = sorted(session_dirs(tmp_path)[0].glob("recording-*.wav"))
+        assert len(wav_files) >= 2
+        for i, f in enumerate(wav_files, start=1):
+            assert f.name == f"recording-{i:03d}.wav", f"Unexpected filename {f.name}"
 
-    def test_no_wav_files_remain_after_session(self, tmp_path):
-        """WAV files are deleted after encoding; only opus files remain."""
+    def test_wav_files_kept_after_recording(self, tmp_path):
+        """WAV chunk files are kept after recording for later transcription."""
         button = StubButton()
         app = make_app(tmp_path, chunk_duration=0.05)
         app._hal = make_hal(button)
 
-        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
+        with patch("earshot.app.wav_to_opus_stereo", side_effect=stub_encode):
             run_session_then_stop(app, button, delay=0.3)
 
         wav_files = list(session_dirs(tmp_path)[0].glob("recording-*.wav"))
-        assert wav_files == [], f"Leftover WAV files: {wav_files}"
+        assert len(wav_files) >= 1, "WAV files should be kept for transcription"
 
     def test_too_short_discards_session_dir(self, tmp_path):
         """A session where every chunk is under min_duration is fully discarded."""
@@ -162,44 +163,27 @@ class TestMultiChunkSession:
         app = make_app(tmp_path, chunk_duration=10.0, min_duration=999.0)
         app._hal = make_hal(button)
 
-        with patch("earshot.app.wav_to_opus_mono", side_effect=stub_encode):
+        with patch("earshot.app.wav_to_opus_stereo", side_effect=stub_encode):
             run_session_then_stop(app, button, delay=0.02)
 
         dirs = session_dirs(tmp_path)
         assert dirs == [], "Session directory should be removed when all chunks are too short"
 
-    def test_encode_failure_creates_failed_marker(self, tmp_path):
-        """A chunk that fails to encode leaves a .failed_NNN marker and keeps the WAV."""
+    def test_concat_and_encode_on_session_complete(self, tmp_path):
+        """After recording completes, WAV files are concatenated and encoded to opus."""
         button = StubButton()
-        app = make_app(tmp_path, chunk_duration=10.0)
+        app = make_app(tmp_path, chunk_duration=0.05)
         app._hal = make_hal(button)
 
-        def failing_encode(wav_path, opus_path, **kwargs):
-            raise RuntimeError("ffmpeg failed")
-
-        with patch("earshot.app.wav_to_opus_mono", side_effect=failing_encode):
-            run_session_then_stop(app, button)
+        with patch("earshot.app.wav_to_opus_stereo", side_effect=stub_encode):
+            run_session_then_stop(app, button, delay=0.3)
 
         dirs = session_dirs(tmp_path)
         assert len(dirs) == 1
-        failed_markers = list(dirs[0].glob(".failed_*"))
-        assert len(failed_markers) == 1, f"Expected one .failed marker, got: {failed_markers}"
-        wav_files = list(dirs[0].glob("recording-*.wav"))
-        assert len(wav_files) == 1, "WAV should be retained on encode failure"
-
-    def test_encode_failure_sets_encode_failure_flag(self, tmp_path):
-        """_encode_failure event is set when a chunk fails to encode."""
-        button = StubButton()
-        app = make_app(tmp_path, chunk_duration=10.0)
-        app._hal = make_hal(button)
-
-        def failing_encode(wav_path, opus_path, **kwargs):
-            raise RuntimeError("ffmpeg failed")
-
-        with patch("earshot.app.wav_to_opus_mono", side_effect=failing_encode):
-            run_session_then_stop(app, button)
-
-        assert app._encode_failure.is_set()
+        session_dir = dirs[0]
+        # Should have session.wav from concat and session.opus from encoding
+        assert (session_dir / "session.wav").exists()
+        assert (session_dir / "session.opus").exists()
 
 
 # ---------------------------------------------------------------------------

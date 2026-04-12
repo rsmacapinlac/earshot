@@ -144,11 +144,11 @@ class TestMoveRecordingsToStick:
         recordings = tmp_path / "recordings"
         stick = tmp_path / "stick"
         stick.mkdir()
-        self._make_session(recordings, "20260101T120000", {"audio-001.opus": b"audio"})
+        self._make_session(recordings, "20260101T120000", {"session.opus": b"audio"})
 
         move_recordings_to_stick(recordings, stick)
 
-        assert (stick / "20260101T120000" / "audio-001.opus").read_bytes() == b"audio"
+        assert (stick / "20260101T120000" / "session.opus").read_bytes() == b"audio"
         assert not (recordings / "20260101T120000").exists()
 
     def test_moves_multiple_sessions(self, tmp_path):
@@ -156,7 +156,7 @@ class TestMoveRecordingsToStick:
         stick = tmp_path / "stick"
         stick.mkdir()
         for name in ("20260101T120000", "20260101T130000"):
-            self._make_session(recordings, name, {"audio-001.opus": b"data"})
+            self._make_session(recordings, name, {"session.opus": b"data"})
 
         move_recordings_to_stick(recordings, stick)
 
@@ -164,29 +164,38 @@ class TestMoveRecordingsToStick:
         assert (stick / "20260101T130000").exists()
         assert list(recordings.glob("*/")) == []
 
-    def test_moves_partial_session_with_failed_markers(self, tmp_path):
-        """Sessions with .failed markers are moved as-is."""
+    def test_skips_session_wav_files(self, tmp_path):
+        """WAV files (session.wav, recording-*.wav) are kept on Pi, not moved to stick."""
         recordings = tmp_path / "recordings"
         stick = tmp_path / "stick"
         stick.mkdir()
         self._make_session(
             recordings,
             "20260101T120000",
-            {"audio-001.opus": b"ok", "recording-002.wav": b"raw", ".failed_002": b""},
+            {
+                "session.opus": b"compressed",
+                "session.wav": b"large raw audio",
+                "recording-001.wav": b"chunk1",
+                "transcript.md": b"# transcript",
+            },
         )
 
         move_recordings_to_stick(recordings, stick)
 
         dest = stick / "20260101T120000"
-        assert (dest / "audio-001.opus").exists()
-        assert (dest / "recording-002.wav").exists()
-        assert (dest / ".failed_002").exists()
+        assert (dest / "session.opus").exists()
+        assert (dest / "transcript.md").exists()
+        # WAV files are not moved (kept on Pi for transcription)
+        assert not (dest / "session.wav").exists()
+        assert not (dest / "recording-001.wav").exists()
+        # Session dir still exists because session.wav wasn't moved
+        assert (recordings / "20260101T120000").exists()
 
     def test_raises_enospc_when_stick_is_full(self, tmp_path):
         recordings = tmp_path / "recordings"
         stick = tmp_path / "stick"
         stick.mkdir()
-        self._make_session(recordings, "20260101T120000", {"audio-001.opus": b"data"})
+        self._make_session(recordings, "20260101T120000", {"session.opus": b"data"})
 
         enospc = OSError(errno.ENOSPC, "No space left on device")
         with patch("earshot.usb_offload.shutil.copy2", side_effect=enospc):
@@ -204,11 +213,11 @@ class TestMoveRecordingsToStick:
         recordings = tmp_path / "recordings"
         stick = tmp_path / "stick"
         stick.mkdir()
-        self._make_session(recordings, "20260101T120000", {"audio-001.opus": b"audio"})
+        self._make_session(recordings, "20260101T120000", {"session.opus": b"audio"})
 
         move_recordings_to_stick(recordings, stick)
 
-        assert (stick / "20260101T120000" / "audio-001.opus").exists()
+        assert (stick / "20260101T120000" / "session.opus").exists()
         assert not (stick / "20260101T120000" / "transcript.md").exists()
         assert not (recordings / "20260101T120000").exists()
 
@@ -221,7 +230,7 @@ class TestMoveRecordingsToStick:
             recordings,
             "20260101T120000",
             {
-                "audio-001.opus": b"audio",
+                "session.opus": b"audio",
                 "transcript.md": b"# Recording\n",
             },
         )
@@ -229,7 +238,7 @@ class TestMoveRecordingsToStick:
         move_recordings_to_stick(recordings, stick)
 
         dest = stick / "20260101T120000"
-        assert (dest / "audio-001.opus").exists()
+        assert (dest / "session.opus").exists()
         assert (dest / "transcript.md").read_bytes() == b"# Recording\n"
         assert not (recordings / "20260101T120000").exists()
 
@@ -242,19 +251,19 @@ class TestMoveRecordingsToStick:
         self._make_session(
             recordings,
             "20260101T100000",
-            {"audio-001.opus": b"a1", "transcript.md": b"done"},
+            {"session.opus": b"a1", "transcript.md": b"done"},
         )
         # Session 2: not yet transcribed
         self._make_session(
             recordings,
             "20260101T110000",
-            {"audio-001.opus": b"a2", "audio-002.opus": b"a3"},
+            {"session.opus": b"a2"},
         )
 
         move_recordings_to_stick(recordings, stick)
 
         assert (stick / "20260101T100000" / "transcript.md").exists()
-        assert (stick / "20260101T110000" / "audio-001.opus").exists()
+        assert (stick / "20260101T110000" / "session.opus").exists()
         assert not (stick / "20260101T110000" / "transcript.md").exists()
         assert list(recordings.glob("*/")) == []
 
@@ -270,7 +279,9 @@ class TestAppUsbOffload:
         cfg.storage.recordings_dir.mkdir(parents=True, exist_ok=True)
         session = cfg.storage.recordings_dir / "20260101T120000"
         session.mkdir()
-        (session / "audio-001.opus").write_bytes(b"audio")
+        # In real usage, session.wav is kept (not moved), so dir persists
+        (session / "session.wav").write_bytes(b"large wav data")
+        (session / "session.opus").write_bytes(b"audio")
 
         stick = tmp_path / "stick"
         stick.mkdir()
@@ -284,8 +295,12 @@ class TestAppUsbOffload:
              patch("earshot.app.flash_single_blue"):
             app._usb_offload()
 
-        assert (stick / "20260101T120000" / "audio-001.opus").exists()
-        assert not session.exists()
+        assert (stick / "20260101T120000" / "session.opus").exists()
+        # Session dir still exists because session.wav wasn't moved
+        assert session.exists()
+        assert (session / "session.wav").exists()
+        # opus was moved
+        assert not (session / "session.opus").exists()
         assert not app._usb_error.is_set()
         assert not app._usb_stick_pending.is_set()
 

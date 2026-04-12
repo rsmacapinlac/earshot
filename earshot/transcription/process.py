@@ -1,183 +1,77 @@
-"""Transcription process: concat .opus files → whisper-cli → segment list (FR-15).
+"""Transcription process: WAV file → faster_whisper → segment list (FR-15).
 
-Pipeline (two temp files, both cleaned up after use):
+Pipeline:
 
-    ffmpeg -f concat -safe 0 -i <filelist.txt> -ar 16000 -ac 1 -f wav <tmp.wav>
-    whisper-cli --model <path> --language en --threads N -f <tmp.wav>
+    faster_whisper.WhisperModel.transcribe(session.wav)
 
-Why two temp files:
-- The concat demuxer (not the concat: protocol) is required because OGG/Opus
-  containers cannot be raw-concatenated — the concat: protocol corrupts streams.
-- whisper-cli calls fseek() when parsing WAV, so piping via /dev/stdin fails.
-  A real file is required.
+The session.wav file is pre-concatenated from individual recording chunks
+at the end of the recording session.
 
-whisper-cli writes timestamped segments to stdout in the format::
-
-    [HH:MM:SS.mmm --> HH:MM:SS.mmm]  segment text
+faster_whisper yields timestamped Segment objects with .start, .end (float seconds), .text.
+Segments are converted to {"from_ms": int, "to_ms": int, "text": str} format.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import re
-import subprocess
-import tempfile
-import threading
-import time
 from pathlib import Path
 
+from faster_whisper import WhisperModel
+
 _log = logging.getLogger(__name__)
-
-_SEGMENT_RE = re.compile(
-    r"^\[(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})\]\s+(.*)"
-)
-
-
-def _ts_to_ms(ts: str) -> int:
-    """Parse 'HH:MM:SS.mmm' → milliseconds."""
-    h, m, rest = ts.split(":")
-    s, ms = rest.split(".")
-    return int(h) * 3_600_000 + int(m) * 60_000 + int(s) * 1_000 + int(ms)
 
 
 def transcribe_session(
     session_dir: Path,
-    model_path: Path,
-    threads: int,
+    model: WhisperModel,
     cancel: threading.Event,
 ) -> list[dict] | None:
-    """Transcribe all ``.opus`` files in *session_dir* using whisper-cli.
+    """Transcribe the pre-concatenated session.wav file using faster_whisper.
 
     Returns a list of ``{"from_ms": int, "to_ms": int, "text": str}`` dicts
     on success, an empty list if the audio yields no speech, or ``None`` on
     failure or cancellation.
 
-    On cancellation (*cancel* is set), both subprocesses are terminated and
-    ``None`` is returned.  The session remains pending for the next idle window.
+    On cancellation (*cancel* is set), transcription stops and ``None`` is returned.
+    The session remains pending for the next idle window.
     """
-    opus_files = sorted(session_dir.glob("*.opus"))
-    if not opus_files:
-        _log.warning("transcribe_session: no .opus files in %s", session_dir.name)
+    wav_path = session_dir / "session.wav"
+    if not wav_path.exists():
+        _log.warning("transcribe_session: session.wav not found in %s", session_dir.name)
         return None
 
-    if not model_path.exists():
-        _log.error("Whisper model not found: %s", model_path)
+    _log.info("Transcribing %s", session_dir.name)
+
+    # Check for cancellation before calling transcribe
+    if cancel.is_set():
         return None
 
-    _log.info(
-        "Transcribing %s (%d chunk(s)) with model %s",
-        session_dir.name,
-        len(opus_files),
-        model_path.name,
-    )
-
-    # Two temp files: a concat demuxer filelist and the decoded WAV.
-    # whisper-cli calls fseek() when reading WAV, so /dev/stdin cannot be used.
-    filelist_fd, filelist_path = tempfile.mkstemp(suffix=".txt", prefix="earshot-concat-")
-    # Write the decoded WAV to /dev/shm (RAM-backed tmpfs) to avoid SD card I/O.
-    # whisper-cli calls fseek() when parsing WAV, so a seekable file is required —
-    # piping via /dev/stdin does not work.
-    shm_dir = "/dev/shm" if os.path.isdir("/dev/shm") else None
-    wav_fd, wav_path = tempfile.mkstemp(suffix=".wav", prefix="earshot-wav-", dir=shm_dir)
-    os.close(wav_fd)  # ffmpeg will open it by path
+    # Transcribe WAV with faster_whisper (lazy segment iterator)
     try:
-        with os.fdopen(filelist_fd, "w") as fh:
-            for f in opus_files:
-                fh.write(f"file '{f}'\n")
+        segments_iter, _info = model.transcribe(str(wav_path), language="en", beam_size=5)
+    except Exception as exc:
+        _log.error("faster_whisper transcribe() failed for %s: %s", session_dir.name, exc)
+        return None
 
-        ffmpeg_cmd = [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-f", "concat", "-safe", "0",
-            "-i", filelist_path,
-            "-af", "loudnorm",
-            "-ar", "16000", "-ac", "1",
-            wav_path,
-        ]
-        whisper_cmd = [
-            "whisper-cli",
-            "--model", str(model_path),
-            "--language", "en",
-            "--threads", str(threads),
-            "-f", wav_path,
-        ]
-
-        try:
-            # Phase 1: decode to WAV (cancellable)
-            ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, stderr=subprocess.DEVNULL)
-            while ffmpeg_proc.poll() is None:
-                if cancel.is_set():
-                    _log.info("Cancelling transcription of %s (ffmpeg)", session_dir.name)
-                    ffmpeg_proc.terminate()
-                    try:
-                        ffmpeg_proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        ffmpeg_proc.kill()
-                    return None
-                time.sleep(0.5)
-
-            if ffmpeg_proc.returncode != 0:
-                _log.error(
-                    "ffmpeg exited %d for %s",
-                    ffmpeg_proc.returncode,
-                    session_dir.name,
-                )
-                return None
-
-            # Phase 2: transcribe WAV (cancellable)
-            whisper_proc = subprocess.Popen(
-                whisper_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            while whisper_proc.poll() is None:
-                if cancel.is_set():
-                    _log.info("Cancelling transcription of %s (whisper)", session_dir.name)
-                    whisper_proc.terminate()
-                    try:
-                        whisper_proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        whisper_proc.kill()
-                    return None
-                time.sleep(0.5)
-
-            stdout_data = whisper_proc.stdout.read()  # type: ignore[union-attr]
-
-            if whisper_proc.returncode != 0:
-                _log.error(
-                    "whisper-cli exited %d for %s",
-                    whisper_proc.returncode,
-                    session_dir.name,
-                )
-                return None
-
-        except FileNotFoundError as exc:
-            _log.error("Binary not found (%s) — is whisper-cli installed?", exc)
-            return None
-        except Exception as exc:
-            _log.error("Transcription subprocess error for %s: %s", session_dir.name, exc)
-            return None
-
-    finally:
-        os.unlink(filelist_path)
-        try:
-            os.unlink(wav_path)
-        except FileNotFoundError:
-            pass  # ffmpeg may not have created it if it failed early
-
+    # Segment iteration. The generator is lazy — ctranslate2 reads the file during iteration.
     _NOISE_TOKENS = {"[BLANK_AUDIO]", "[Music]", "[Applause]", "[Laughter]"}
 
     segments: list[dict] = []
-    for line in stdout_data.decode("utf-8", errors="replace").splitlines():
-        m = _SEGMENT_RE.match(line.strip())
-        if m:
-            text = m.group(3).strip()
+    try:
+        for seg in segments_iter:
+            if cancel.is_set():
+                _log.info("Cancelling transcription of %s (segment loop)", session_dir.name)
+                return None
+            text = seg.text.strip()
             if text and text not in _NOISE_TOKENS:
                 segments.append({
-                    "from_ms": _ts_to_ms(m.group(1)),
-                    "to_ms": _ts_to_ms(m.group(2)),
+                    "from_ms": int(seg.start * 1000),
+                    "to_ms": int(seg.end * 1000),
                     "text": text,
                 })
+    except Exception as exc:
+        _log.error("Segment iteration failed for %s: %s", session_dir.name, exc)
+        return None
 
     _log.info(
         "Transcription complete: %s — %d segment(s)", session_dir.name, len(segments)

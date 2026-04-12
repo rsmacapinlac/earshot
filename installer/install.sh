@@ -64,75 +64,48 @@ for arg in "$@"; do
 done
 
 # ── Transcription-only upgrade path ──────────────────────────────────────────
-# Installs whisper-cli + model, patches config.toml, restarts service.
-# Use this on an already-installed device when upgrading from v0.1.0 to v0.2.0.
+# Downloads faster_whisper model, patches config.toml, restarts service.
+# Use this on an already-installed device when upgrading to v0.3.0+.
 
 if $TRANSCRIPTION_ONLY; then
-    WHISPER_VERSION="v1.7.5"
-    WHISPER_BIN_URL="https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-linux-aarch64.tar.gz"
     MODELS_DIR="$INSTALL_HOME/.local/share/earshot/models"
-    MODEL_FILE="ggml-tiny.en-q5_1.bin"
-    MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${MODEL_FILE}"
+    TX_MODEL="${TX_MODEL:-tiny.en}"
 
     echo ""
     echo "╔══════════════════════════════════════════╗"
-    echo "║   Earshot v0.2.0 — transcription setup  ║"
+    echo "║   Earshot — transcription setup         ║"
     echo "╚══════════════════════════════════════════╝"
     echo ""
 
-    # 1. Re-install Python package to pick up new earshot.transcription module.
+    # 1. Re-install Python package to pick up faster_whisper dependency.
     log "Updating Python package..."
     "$VENV_DIR/bin/pip" install --quiet -e "${REPO_DIR}[pi]"
 
-    # 2. Install whisper-cli if not already present.
-    if command -v whisper-cli &>/dev/null; then
-        info "whisper-cli already installed: $(command -v whisper-cli)"
-    else
-        log "Installing whisper.cpp binary (${WHISPER_VERSION})..."
-        _tmp_dir=$(mktemp -d)
-        if curl --silent --fail --location "$WHISPER_BIN_URL" \
-                | tar xz -C "$_tmp_dir" 2>/dev/null; then
-            _bin=$(find "$_tmp_dir" -name "whisper-cli" -type f | head -1)
-            if [ -n "$_bin" ]; then
-                sudo install -m 755 "$_bin" /usr/local/bin/whisper-cli
-                info "whisper-cli installed from pre-built binary."
-            else
-                info "Binary not found in archive — building from source..."
-                _bin=""
-            fi
-        else
-            info "Pre-built download failed — building from source..."
-            _bin=""
-        fi
-        rm -rf "$_tmp_dir"
-
-        if [ -z "${_bin:-}" ]; then
-            log "Building whisper.cpp from source (this takes a few minutes)..."
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
-            _src_dir=$(mktemp -d)
-            git clone --depth=1 \
-                --branch "$WHISPER_VERSION" \
-                https://github.com/ggerganov/whisper.cpp.git \
-                "$_src_dir"
-            cmake -B "$_src_dir/build" -S "$_src_dir" \
-                -DWHISPER_BUILD_TESTS=OFF \
-                -DBUILD_SHARED_LIBS=OFF
-            cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(_build_jobs)"
-            sudo install -m 755 "$_src_dir/build/bin/whisper-cli" /usr/local/bin/whisper-cli
-            rm -rf "$_src_dir"
-            info "whisper-cli installed from source."
-        fi
-    fi
-
-    # 3. Download model if not already present.
-    log "Downloading whisper model ($MODEL_FILE)..."
+    # 2. Pre-download faster_whisper model.
+    log "Pre-downloading faster_whisper model ($TX_MODEL)..."
     mkdir -p "$MODELS_DIR"
-    if [ ! -f "$MODELS_DIR/$MODEL_FILE" ]; then
-        curl --fail --location --output "$MODELS_DIR/$MODEL_FILE" "$MODEL_URL"
-        info "Model saved to $MODELS_DIR/$MODEL_FILE"
-    else
-        info "Model already present: $MODELS_DIR/$MODEL_FILE"
-    fi
+    export MODELS_DIR TX_MODEL
+    "$VENV_DIR/bin/python" - <<'PYMODEL'
+import os
+import sys
+
+try:
+    from faster_whisper import WhisperModel
+except ImportError as e:
+    print(f"    ERROR: failed to import faster_whisper: {e}", file=sys.stderr)
+    sys.exit(1)
+
+models_dir = os.environ.get("MODELS_DIR")
+tx_model = os.environ.get("TX_MODEL", "tiny.en")
+
+try:
+    print(f"    Loading {tx_model} model (this may take a minute on first run)...")
+    WhisperModel(tx_model, device="cpu", download_root=models_dir)
+    print(f"    Model cached at {models_dir}")
+except Exception as e:
+    print(f"    ERROR: failed to download model: {e}", file=sys.stderr)
+    sys.exit(1)
+PYMODEL
 
     # 4. Add [transcription] section to config.toml if missing.
     log "Patching config.toml..."
@@ -367,69 +340,41 @@ log "Installing Python dependencies..."
 log "Installing Earshot package (editable) with Pi extras..."
 "$VENV_DIR/bin/pip" install --quiet -e "${REPO_DIR}[pi]"
 
-# ── whisper.cpp (FR-18) ──────────────────────────────────────────────────────
+# ── transcription (faster_whisper) ──────────────────────────────────────────
 
-WHISPER_VERSION="v1.7.5"
-WHISPER_BIN_URL="https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-linux-aarch64.tar.gz"
 MODELS_DIR="$INSTALL_HOME/.local/share/earshot/models"
-MODEL_FILE="ggml-tiny.en-q5_1.bin"
-MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${MODEL_FILE}"
+TX_MODEL="${TX_MODEL:-tiny.en}"
 
 if $SKIP_TRANSCRIPTION; then
-    log "Skipping whisper.cpp and model download (--no-transcription)."
+    log "Skipping faster_whisper model download (--no-transcription)."
     TRANSCRIPTION_ENABLED=false
 else
     TRANSCRIPTION_ENABLED=true
 
-    if command -v whisper-cli &>/dev/null; then
-        info "whisper-cli already installed: $(command -v whisper-cli)"
-    else
-        log "Installing whisper.cpp binary (${WHISPER_VERSION})..."
-        _tmp_dir=$(mktemp -d)
-        if curl --silent --fail --location "$WHISPER_BIN_URL" \
-                | tar xz -C "$_tmp_dir" 2>/dev/null; then
-            # Archive contains a single binary or a directory — find whisper-cli.
-            _bin=$(find "$_tmp_dir" -name "whisper-cli" -type f | head -1)
-            if [ -n "$_bin" ]; then
-                sudo install -m 755 "$_bin" /usr/local/bin/whisper-cli
-                info "whisper-cli installed from pre-built binary."
-            else
-                err "whisper-cli binary not found in release archive — falling back to build."
-                _bin=""
-            fi
-        else
-            info "Pre-built binary download failed — building whisper.cpp from source..."
-            _bin=""
-        fi
-        rm -rf "$_tmp_dir"
-
-        if [ -z "$_bin" ]; then
-            # Build from source.
-            log "Building whisper.cpp from source (requires cmake)..."
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cmake
-            _src_dir=$(mktemp -d)
-            git clone --depth=1 \
-                --branch "$WHISPER_VERSION" \
-                https://github.com/ggerganov/whisper.cpp.git \
-                "$_src_dir"
-            cmake -B "$_src_dir/build" -S "$_src_dir" \
-                -DWHISPER_BUILD_TESTS=OFF \
-                -DBUILD_SHARED_LIBS=OFF
-            cmake --build "$_src_dir/build" --config Release --target whisper-cli -j "$(_build_jobs)"
-            sudo install -m 755 "$_src_dir/build/bin/whisper-cli" /usr/local/bin/whisper-cli
-            rm -rf "$_src_dir"
-            info "whisper-cli installed from source."
-        fi
-    fi
-
-    log "Downloading whisper model ($MODEL_FILE, ~31 MB)..."
+    log "Pre-downloading faster_whisper model ($TX_MODEL)..."
     mkdir -p "$MODELS_DIR"
-    if [ ! -f "$MODELS_DIR/$MODEL_FILE" ]; then
-        curl --silent --fail --location --output "$MODELS_DIR/$MODEL_FILE" "$MODEL_URL"
-        info "Model saved to $MODELS_DIR/$MODEL_FILE"
-    else
-        info "Model already present: $MODELS_DIR/$MODEL_FILE"
-    fi
+    export MODELS_DIR TX_MODEL
+    "$VENV_DIR/bin/python" - <<'PYMODEL'
+import os
+import sys
+
+try:
+    from faster_whisper import WhisperModel
+except ImportError as e:
+    print(f"    ERROR: failed to import faster_whisper: {e}", file=sys.stderr)
+    sys.exit(1)
+
+models_dir = os.environ.get("MODELS_DIR")
+tx_model = os.environ.get("TX_MODEL", "tiny.en")
+
+try:
+    print(f"    Loading {tx_model} model...")
+    WhisperModel(tx_model, device="cpu", download_root=models_dir)
+    print(f"    Model cached at {models_dir}")
+except Exception as e:
+    print(f"    ERROR: failed to download model: {e}", file=sys.stderr)
+    sys.exit(1)
+PYMODEL
 fi
 
 # ── config.toml ─────────────────────────────────────────────────────────────
@@ -496,8 +441,8 @@ header = (
     "#   Example: recordings_dir = \"/mnt/usb/earshot-recordings\"\n"
     "#\n"
     "# transcription.enabled — set to false to disable on-device transcription.\n"
-    "# transcription.model  — 'tiny.en' (default, Pi Zero 2W safe) or 'base.en' (Pi 4B).\n"
-    "# transcription.threads — whisper-cli thread count (default: 2).\n\n"
+    "# transcription.model  — 'tiny.en' (default) or 'base.en'.\n"
+    "# transcription.threads — faster_whisper cpu_threads (default: 2).\n\n"
 )
 
 config_path.parent.mkdir(parents=True, exist_ok=True)

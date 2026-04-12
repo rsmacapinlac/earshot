@@ -1,4 +1,4 @@
-"""On-device transcription using whisper.cpp (ADR-0010)."""
+"""On-device transcription using faster_whisper (ADR-0010)."""
 
 from earshot.transcription.process import transcribe_session
 from earshot.transcription.queue import pending_sessions

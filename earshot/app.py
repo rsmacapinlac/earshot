@@ -12,10 +12,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from faster_whisper import WhisperModel
+
 from earshot.config import AppConfig
 from earshot.hal import Hal, LedPattern, create_hal
 from earshot.hal.effects import flash_double_green, flash_fast_red_three_times, flash_single_blue
-from earshot.recording import StereoWavWriter, wav_to_opus_mono
+from earshot.recording import StereoWavWriter, concat_wav_files, wav_to_opus_mono, wav_to_opus_stereo
 from earshot.status import Status, load_status, save_status
 from earshot.storage import (
     disk_usage_percent,
@@ -45,7 +47,6 @@ class EarshotApp:
         self._usb_stick_pending = threading.Event()
         self._usb_error = threading.Event()
         self._usb_stop = threading.Event()
-        self._encode_failure = threading.Event()
         self._gadget: GadgetOffload | None = None
 
     def run(self) -> None:
@@ -389,16 +390,14 @@ class EarshotApp:
         ``chunk_duration_seconds``.
 
         All chunks share one session directory named after the session start
-        time.  Chunk files are numbered sequentially: ``recording-001.wav`` →
-        ``audio-001.opus``, etc.  Each completed chunk is encoded in a
-        background thread so capture continues uninterrupted across rollovers.
-        The LED stays red throughout and turns blue only while waiting for the
-        final encoding pass after the button is pressed.
+        time.  WAV chunks (``recording-001.wav``, etc.) are kept during recording.
+        When the button is pressed, all WAV chunks are concatenated into
+        ``session.wav``, then transcribed. After transcription, the session.wav
+        is encoded to opus for offload. The LED stays red throughout recording.
         """
         hal = self._hal
         assert hal is not None
         cfg = self._cfg
-        self._encode_failure.clear()
         self._snap_recording_led(hal)
 
         session_stamp = new_recording_stamp()
@@ -417,7 +416,6 @@ class EarshotApp:
                 self._set_idle_led(self._disk_blocked())
                 return
 
-            encode_threads: list[threading.Thread] = []
             session_too_short = False
             chunk_num = 0
             # Mutable cell so the timer thread always sees the current chunk.
@@ -482,20 +480,14 @@ class EarshotApp:
                     duration_s = frames_recorded / float(cfg.audio.sample_rate)
                     if duration_s < cfg.recording.min_duration_seconds:
                         wav_path.unlink(missing_ok=True)
-                        if reason == "button" and not encode_threads:
+                        if reason == "button":
                             session_too_short = True
                         if reason == "button":
                             break
                         continue
 
-                    t = threading.Thread(
-                        target=self._encode_chunk,
-                        args=(session_dir, wav_path, opus_name),
-                        name=f"earshot-encode-{session_stamp}-{chunk_num:03d}",
-                        daemon=True,
-                    )
-                    t.start()
-                    encode_threads.append(t)
+                    # WAV chunk is kept for later concatenation and transcription.
+                    _log.info("Recorded chunk %d: %.0fs", chunk_num, duration_s)
 
                     if reason == "button":
                         break
@@ -510,41 +502,44 @@ class EarshotApp:
                     pass
                 audio.close()
 
-            if not encode_threads and session_too_short:
+            if session_too_short:
                 shutil.rmtree(session_dir, ignore_errors=True)
                 flash_double_green(hal)
                 self._set_idle_led(self._disk_blocked())
                 return
 
-            if encode_threads:
-                hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
-                hal.display.update(
-                    "ENCODING",
-                    {
-                        "chunk_num": chunk_num,
-                        "total_chunks": chunk_num,
-                        "disk_pct": self._disk_pct_int(),
-                    },
-                )
-                for t in encode_threads:
-                    t.join()
+            # Recording complete. Concatenate all WAV chunks into a single session.wav for transcription.
+            session_wav = session_dir / "session.wav"
+            try:
+                concat_wav_files(session_dir, session_wav)
+            except Exception as exc:
+                _log.error("Failed to concatenate WAV files for %s: %s", session_dir.name, exc)
+                # Leave the individual WAV files if concatenation fails
+                pass
 
-            if self._encode_failure.is_set():
-                hal.display.update(
-                    "ENCODE_FAILED",
-                    {"chunk_num": chunk_num, "total_chunks": chunk_num},
-                )
-                flash_fast_red_three_times(hal)
-            else:
-                # Recording encoded successfully; save status for earshot-tui.
-                session_dt = datetime.strptime(session_stamp, "%Y%m%dT%H%M%S")
-                status = Status(
-                    status="downloaded",
-                    device="earshot",
-                    recorded_at=session_dt,
-                    duration=0.0,  # Duration will be probed by earshot-tui on import
-                )
-                save_status(session_dir, status)
+            # Encode session.wav to opus stereo for offload.
+            session_opus = session_dir / "session.opus"
+            if session_wav.exists():
+                try:
+                    wav_to_opus_stereo(
+                        session_wav,
+                        session_opus,
+                        sample_rate=cfg.audio.sample_rate,
+                        bitrate_kbps=cfg.audio.opus_bitrate,
+                    )
+                except Exception as exc:
+                    _log.error("Failed to encode opus for %s: %s", session_dir.name, exc)
+                    # Continue without opus; transcription can still happen
+
+            # Save status for earshot-tui.
+            session_dt = datetime.strptime(session_stamp, "%Y%m%dT%H%M%S")
+            status = Status(
+                status="downloaded",
+                device="earshot",
+                recorded_at=session_dt,
+                duration=0.0,  # Duration will be probed by earshot-tui on import
+            )
+            save_status(session_dir, status)
 
             # Remove session dir if encoding left nothing behind.
             try:
@@ -558,43 +553,6 @@ class EarshotApp:
             _log.exception("unexpected error in recording session")
             self._set_idle_led(self._disk_blocked())
 
-    def _encode_chunk(
-        self,
-        session_dir: Path,
-        wav_path: Path,
-        opus_name: str,
-    ) -> None:
-        """Encode one WAV chunk to Opus in a background thread.
-
-        On success: WAV is deleted.
-        On failure: ``.failed_NNN`` marker is written, WAV is retained,
-        and the session-level failure flag is set so the LED can flash after
-        all chunks are joined.
-        """
-        cfg = self._cfg
-        opus_path = session_dir / opus_name
-        # audio-001.opus → .failed_001; legacy audio.opus → .failed
-        chunk_num = opus_name[len("audio-"):-len(".opus")]
-        failed_name = f".failed_{chunk_num}" if chunk_num.isdigit() else ".failed"
-        failed_path = session_dir / failed_name
-
-        try:
-            wav_to_opus_mono(
-                wav_path,
-                opus_path,
-                sample_rate=cfg.audio.sample_rate,
-                bitrate_kbps=cfg.audio.opus_bitrate,
-            )
-        except Exception as exc:
-            _log.error(
-                "Opus encode failed for %s/%s: %s", session_dir.name, opus_name, exc
-            )
-            failed_path.touch()
-            self._encode_failure.set()
-            return
-
-        wav_path.unlink(missing_ok=True)
-        _log.info("Encoded %s/%s", session_dir.name, opus_name)
 
     def _record_until_stop(
         self, audio, writer: StereoWavWriter, cfg: AppConfig
@@ -636,11 +594,17 @@ class EarshotApp:
         assert hal is not None
         cfg = self._cfg
 
-        model_path = (
-            Path.home()
-            / ".local/share/earshot/models"
-            / f"ggml-{cfg.transcription.model}-q5_1.bin"
-        )
+        models_dir = Path.home() / ".local/share/earshot/models"
+        try:
+            model = WhisperModel(
+                cfg.transcription.model,
+                device="cpu",
+                download_root=str(models_dir),
+                cpu_threads=cfg.transcription.threads,
+            )
+        except Exception as exc:
+            _log.error("Failed to load WhisperModel: %s", exc)
+            return "done"
 
         queue = pending_sessions(recordings_root(cfg))
         total = len(queue)
@@ -663,8 +627,8 @@ class EarshotApp:
             cancel = threading.Event()
             result_holder: list[list[dict] | None] = [None]
 
-            def _run(sd=session_dir, rh=result_holder, c=cancel) -> None:
-                rh[0] = transcribe_session(sd, model_path, cfg.transcription.threads, c)
+            def _run(sd=session_dir, rh=result_holder, c=cancel, m=model) -> None:
+                rh[0] = transcribe_session(sd, m, c)
 
             t = threading.Thread(
                 target=_run,
