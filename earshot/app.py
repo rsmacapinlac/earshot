@@ -542,11 +542,33 @@ class EarshotApp:
                     # Continue without opus; transcription can still happen
 
             # Save status for earshot-tui.
+            # Extract duration from session.opus if it exists.
+            duration_s = 0.0
+            session_opus = session_dir / "session.opus"
+            if session_opus.exists():
+                try:
+                    result = subprocess.run(
+                        [
+                            "ffprobe",
+                            "-v", "error",
+                            "-show_entries", "format=duration",
+                            "-of", "default=noprint_wrappers=1:nokey=1:csv=p=0",
+                            str(session_opus),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        duration_s = float(result.stdout.strip())
+                except Exception as exc:
+                    _log.warning("Failed to extract duration from %s: %s", session_opus.name, exc)
+
             status = Status(
                 status="recorded",
                 device="earshot",
                 recorded_at=datetime.now(),
-                duration=0.0,  # Duration will be probed by earshot-tui on import
+                duration=duration_s,
             )
             save_status(session_dir, status)
 
