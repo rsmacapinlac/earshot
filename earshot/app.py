@@ -508,6 +508,9 @@ class EarshotApp:
                 self._set_idle_led(self._disk_blocked())
                 return
 
+            # Show amber LED while encoding (post-recording processing).
+            hal.led.set_colour_and_pattern(255, 180, 0, LedPattern.SLOW_PULSE)
+
             # Recording complete. Concatenate all WAV chunks into a single session.wav for transcription.
             session_wav = session_dir / "session.wav"
             try:
@@ -547,6 +550,7 @@ class EarshotApp:
             except OSError:
                 pass
 
+            # Return to idle (green).
             self._set_idle_led(self._disk_blocked())
 
         except Exception:

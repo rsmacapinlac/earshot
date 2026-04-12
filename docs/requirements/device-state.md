@@ -7,6 +7,7 @@
 | Booting | White | Slow pulsating |
 | Ready / idle | Green | Solid |
 | Recording | Red | Slow pulsating |
+| Post-recording (encoding) | Amber | Slow pulsating |
 | USB transfer | Blue | Slow pulsating |
 | USB transfer complete | Blue | Single flash |
 | USB transfer error | Orange | Slow pulsating |
