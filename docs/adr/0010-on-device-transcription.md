@@ -17,32 +17,34 @@ The `openai/whisper` Python package is not viable on either device: it requires 
 
 ## Decision
 
-### 1. Engine: whisper.cpp with GGML quantized models
+### 1. Engine: faster-whisper with CTranslate2
 
-whisper.cpp is a C/C++ port of OpenAI Whisper compiled to ARM64 native binaries with NEON SIMD. It is invoked as a subprocess from the existing Python application.
+faster-whisper is a Python library wrapping OpenAI Whisper via CTranslate2, providing efficient ARM64 inference with optimized quantized models. It is imported directly into the Python application with no subprocess or binary dependency.
 
 Key reasons over alternatives:
 
-- **No Python overhead.** whisper.cpp is a single compiled binary. On the Pi Zero 2W, Python framework overhead (~100–150 MB) is unacceptable; whisper.cpp avoids it entirely.
-- **GGML Q5_1 quantization.** The quantized tiny.en model is 31 MB on disk and ~130 MB at runtime — the only Whisper variant that fits within the Pi Zero 2W's budget. Unquantized float16 models require ~2–3× more RAM.
-- **Proven ARM NEON path.** NEON SIMD is the default code path on ARM64; no AVX dependency. Performance is well-characterised on Raspberry Pi hardware.
-- **Model format flexibility.** GGML supports Q4, Q5, and Q8 quantization levels; the installer can offer a model choice without changing the integration.
+- **Efficient quantization support.** CTranslate2 provides INT8 and INT16 quantized models that outperform unquantized models on ARM CPUs. The tiny.en INT8 model is ~35 MB on disk and ~110 MB at runtime, fitting within the Pi Zero 2W's 512 MB budget with headroom for recording.
+- **No build step required.** Unlike whisper.cpp (which requires cmake compilation or pre-built binary procurement), faster-whisper is installed via pip. The Python package includes optimized ARM64 binaries for CTranslate2.
+- **Integrated VAD and lazy segment evaluation.** Built-in voice activity detection reduces transcription of silence. Segment iteration is lazy — the model reads the audio file during iteration, enabling memory-efficient pipeline designs where the session WAV file is discarded immediately after transcription completes.
+- **Native Python integration.** No subprocess overhead; the model is loaded once per transcription queue and reused across sessions, eliminating startup latency.
 
-**faster-whisper** (CTranslate2, Python): offers a cleaner Python API and built-in VAD, but adds ~100 MB Python + library overhead and historically underperforms whisper.cpp on ARM without correct backend configuration (SYSTRAN/faster-whisper#38). Not viable on Pi Zero 2W.
+**whisper.cpp** (original choice in ADR-0010): offers lower RAM usage via GGML quantization, but requires cmake build infrastructure on the Pi or procurement of pre-built aarch64 binaries. As of v0.2.2, faster-whisper's quantized models achieve comparable memory footprint with cleaner installation and integration.
 
-**Vosk**: lower accuracy (~15–20% WER vs Whisper's ~5–8% on clean English) with a similar RAM footprint. Retained as a documented fallback if whisper.cpp proves unworkable on a specific hardware configuration.
+**Vosk**: lower accuracy (~15–20% WER vs Whisper's ~5–8% on clean English). Retained as a documented fallback if faster-whisper proves unworkable on a specific hardware configuration.
 
-**openai/whisper (PyTorch)**: 3–5× slower than whisper.cpp, ~500 MB RAM minimum before framework overhead. Ruled out on both devices.
+**openai/whisper (PyTorch)**: 3–5× slower than faster-whisper on ARM, ~500 MB RAM minimum before framework overhead. Ruled out on both devices.
 
 ### 2. Session-level transcription, not chunk-level
 
-Transcription operates on the full session, not on individual chunks. All `.opus` files in a session directory are concatenated via `ffmpeg` and piped directly to whisper.cpp — no intermediate file is written.
+Transcription operates on the full session, not on individual chunks. Recording preserves all `recording-*.wav` chunks; at the end of recording, these chunks are concatenated into a single `session.wav`, then encoded to `session.opus` via ffmpeg. Transcription reads the `session.wav` via `WhisperModel.transcribe()`.
 
 Chunk-level transcription was rejected because:
 
 - Whisper processes audio in 30-second windows internally. When transcribing separate chunk files, the model loses context at every 15-minute boundary — words and sentences split across chunks are transcribed without continuity.
 - Session-level transcription produces a single `transcript.md` with continuous timestamps, which matches the earshot-tui output format and is more useful to the reader.
 - Per-chunk `.txt` files require assembling a final transcript, complicating the state model.
+
+**Recording pipeline change (v0.2.2)**: Previously, individual chunk WAVs were encoded to opus in the background during recording. Now, all WAV chunks are preserved and concatenated at the end of recording into `session.wav`, then transcoded to `session.opus` in a single post-recording step. This simplifies the state model and allows lazy-evaluation transcription (reading the audio file only during segment iteration, enabling immediate WAV cleanup after transcription completes).
 
 ### 3. Idle-only, FIFO queue scheduling
 
@@ -79,16 +81,17 @@ This format was chosen to ensure cross-tool compatibility. earshot-tui can detec
 
 ### 5. Enabled by default
 
-Transcription is enabled by default. The installer installs whisper.cpp and downloads the default model as part of the standard setup. Users who do not want transcription can disable it with `transcription.enabled = false` or pass `--no-transcription` to the installer.
+Transcription is enabled by default. The installer installs faster-whisper and downloads the default model as part of the standard setup. Users who do not want transcription can disable it with `transcription.enabled = false` or pass `--no-transcription` to the installer.
 
-Default model: `tiny.en` (Q5_1). Suitable for both Pi 4B and Pi Zero 2W. Users may configure `base.en` on Pi 4B for better accuracy.
+Default model: `tiny.en` (INT8). Suitable for both Pi 4B and Pi Zero 2W. Users may configure `base.en` on Pi 4B for better accuracy.
 
 ## Consequences
 
-- whisper.cpp must be installed as part of the Earshot installer. Pre-built aarch64 binaries are available; build-from-source via cmake is the fallback.
-- GGML model files are stored on the SD card (e.g. `~/.local/share/earshot/models/`). The tiny.en Q5_1 model is 31 MB; base.en Q5_1 is 57 MB.
+- faster-whisper is installed as a Python package via pip. CTranslate2 wheels include optimized ARM64 binaries; no build step is required.
+- Quantized model files are stored on the SD card (e.g. `~/.local/share/earshot/models/`). The tiny.en INT8 model is ~35 MB; base.en INT8 is ~60 MB.
 - A new device state is introduced: **Transcribing** — idle with transcription queue active. LED: amber slow pulsate. This state is transparent on the ReSpeaker HAT (LED only); the Whisplay HAT LCD shows queue depth and current session.
 - Transcription of a 15-minute session takes approximately 3–6 minutes on Pi 4B (tiny.en) and 7–18 minutes on Pi Zero 2W. Long sessions on Pi Zero 2W may queue for hours; this is expected and documented.
 - Interrupted transcription (power loss or new recording) leaves no partial output. The session remains queued and is retried from the beginning.
 - USB offload is not gated on transcription completion. Sessions are offloaded regardless of transcription state. A future option (`storage.require_transcript_before_offload`) may gate offload on transcript availability — deferred to a later release.
+- Recording pipeline (as of v0.2.2): WAV chunks are preserved during recording, concatenated at the end of recording, then encoded to opus. WAV files remain on the device (USB offload skips them). Orphaned WAV recovery (NFR-2) still applies: any `recording-*.wav` without corresponding `.opus` file is recovered on boot.
 - `processing.md` is updated: the statement "no transcription is performed on-device" is superseded by this ADR for users who opt in.

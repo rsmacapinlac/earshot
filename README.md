@@ -16,8 +16,8 @@ A Raspberry Pi application that records conversations locally and offloads audio
 
 1. The LED pulsates **white** while booting, then glows solid **green** when ready.
 2. Press the button to start recording — the LED pulsates **red**.
-3. Press the button again to stop — the LED pulsates **blue** while the audio is encoded.
-4. The LED returns to solid **green** when ready.
+3. Press the button again to stop — the LED returns to solid **green** as audio is concatenated and encoded.
+4. If transcription is enabled, the LED will pulsate **amber** while transcribing. Once complete, it returns to solid **green**.
 
 To safely shut down, hold the button for 3 seconds while idle.
 

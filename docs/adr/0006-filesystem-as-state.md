@@ -14,10 +14,11 @@ State is derived from the presence and combination of files in each session dire
 
 | Contents | Meaning |
 |---|---|
-| `audio_NNN.wav` only | Recording or interrupted before encode |
-| `audio_NNN.wav` + `audio_NNN.opus` | Encode in progress |
-| `audio_NNN.opus` only | Successfully encoded |
-| `audio_NNN.wav` + `.failed_NNN` | Encoding failed; WAV retained |
+| `recording-NNN.wav` (×N) only | Recording in progress |
+| `recording-NNN.wav` (×N) + `session.wav` | Recording ended, chunks concatenated |
+| `recording-NNN.wav` (×N) + `session.wav` + `session.opus` | Encoded, pending transcription |
+| `session.opus` + `transcript.md` | Fully processed |
+| `recording-NNN.wav` + `.failed_NNN` marker | Orphaned WAV from crash (recovery path) |
 
 Application errors are logged to the systemd journal (already present via ADR-0004).
 

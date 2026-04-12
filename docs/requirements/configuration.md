@@ -42,13 +42,13 @@ All values shown below are defaults. Omitting a key uses the default.
 
 ## `[transcription]`
 
-On-device transcription using whisper.cpp. Disabled by default — the installer prompts to enable during setup.
+On-device transcription using faster-whisper (CTranslate2). Enabled by default — the installer prompts during setup.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `transcription.enabled` | boolean | `true` | Enable on-device transcription. Requires whisper.cpp and a model file to be installed. Set to `false` to disable. |
-| `transcription.model` | string | `"tiny.en"` | Whisper model to use. `"tiny.en"` (Q5_1, 31 MB) is the default and the only supported model on Pi Zero 2W. `"base.en"` (Q5_1, 57 MB) is recommended on Pi 4B for better accuracy. |
-| `transcription.threads` | integer | `2` | CPU threads allocated to whisper.cpp inference. Default of 2 leaves headroom for recording and encoding on the 4-core CPU. |
+| `transcription.enabled` | boolean | `true` | Enable on-device transcription. Requires faster-whisper and a model file to be installed. Set to `false` to disable. |
+| `transcription.model` | string | `"tiny.en"` | Whisper model to use. `"tiny.en"` (INT8, ~35 MB) is the default and the only supported model on Pi Zero 2W. `"base.en"` (INT8, ~60 MB) is recommended on Pi 4B for better accuracy. |
+| `transcription.threads` | integer | `2` | CPU threads allocated to faster-whisper inference. Default of 2 leaves headroom for recording and other operations on the 4-core CPU. |
 
 ---
 

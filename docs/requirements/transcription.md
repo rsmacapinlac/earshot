@@ -1,6 +1,6 @@
 # Transcription
 
-On-device transcription is an opt-in feature that converts completed recording sessions to text using whisper.cpp. Transcription runs during idle time and does not compete with recording.
+On-device transcription is an opt-in feature that converts completed recording sessions to text using faster-whisper (CTranslate2-based inference). Transcription runs during idle time and does not compete with recording.
 
 > See [device-state.md](device-state.md) for LED behaviour during the Transcribing state.
 > See [display.md](display.md) for Whisplay HAT LCD behaviour during transcription.
@@ -11,7 +11,7 @@ On-device transcription is an opt-in feature that converts completed recording s
 ## FR-14: Transcription Queue
 
 - Transcription is enabled by default. It is active unless `transcription.enabled = false` in `config.toml`.
-- A session is **pending transcription** when its directory contains one or more `.opus` files but no `transcript.md`.
+- A session is **pending transcription** when its directory contains `session.wav` (the concatenated recording) but no `transcript.md`.
 - The queue is implicit — derived from the filesystem at runtime. No separate queue file is maintained.
 - Sessions are processed **FIFO** (oldest session directory first, by directory name timestamp).
 - The queue persists across reboots. A session remains pending until `transcript.md` is successfully written.
@@ -27,15 +27,9 @@ On-device transcription is an opt-in feature that converts completed recording s
 
 ## FR-15: Transcription Process
 
-- All `.opus` files within the session directory are concatenated in filename order and piped directly to `whisper-cli` via `ffmpeg`. No intermediate audio file is written.
-
-  ```
-  ffmpeg -i "concat:audio_001.opus|audio_002.opus|..." \
-         -ar 16000 -ac 1 -f wav - | whisper-cli --input - [options]
-  ```
-
-- `whisper-cli` is invoked with the configured model and thread count.
-- On success: `transcript.md` is written to the session directory. The session is no longer pending.
+- The `session.wav` file (created by concatenating all `recording-*.wav` chunks at the end of recording) is passed to `WhisperModel.transcribe()` with language set to English and configurable beam search width.
+- The model reads the audio file lazily during segment iteration; no decoding happens until iteration begins.
+- On success: `transcript.md` is written to the session directory. The session is no longer pending. The `session.wav` file may be deleted post-transcription (implementation detail).
 - On failure: no `transcript.md` is written. The session remains at the front of the queue. The failure is logged to the systemd journal. Transcription is retried on the next idle window.
 
 ---
@@ -59,17 +53,18 @@ The output file is `transcript.md` in the session directory. The format is compa
 - **Duration** is the total audio duration across all chunks, derived from the concatenated audio.
 - **Processed** is the wall-clock time transcription completed.
 - Each segment line uses `[MM:SS]` for timestamps under one hour, `[HH:MM:SS]` for one hour or beyond.
-- Segment text is the raw whisper.cpp output with no post-processing applied.
+- Segment text is the raw transcription output from faster-whisper with no post-processing applied.
 
 ### Filesystem state with transcription enabled
 
 | Directory contents | Meaning |
 |---|---|
-| `audio_NNN.wav` only | Chunk currently recording or interrupted before encode |
-| `audio_NNN.wav` + `audio_NNN.opus` | Chunk encode in progress |
-| `audio_NNN.opus` only (no `transcript.md`) | Encoded; pending transcription |
-| `audio_NNN.opus` + `transcript.md` | Fully processed |
-| `audio_NNN.wav` + `.failed_NNN` marker | Encoding failed; WAV retained |
+| `recording-NNN.wav` only | Chunk recorded, awaiting session end |
+| `recording-NNN.wav` (×N) + `session.wav` | Recording completed, chunks concatenated |
+| `recording-NNN.wav` + `session.wav` + `session.opus` | Recording encoded; awaiting transcription |
+| `session.wav` + `session.opus` + `transcript.md` | Fully processed |
+| `recording-NNN.wav` + `.failed_NNN` marker | Orphaned WAV from prior crash (recovery path) |
+| `session.opus` + `transcript.md` | Transcript complete; WAV may be deleted (implementation detail) |
 
 ---
 
@@ -89,10 +84,10 @@ The output file is `transcript.md` in the session directory. The format is compa
 
 - The installer (`installer/install.sh`) installs transcription support by default.
 - The installer:
-  1. Installs `whisper.cpp` (pre-built aarch64 binary preferred; cmake build from source as fallback).
-  2. Downloads the configured model file to `~/.local/share/earshot/models/` (default: `ggml-tiny.en-q5_1.bin`, 31 MB).
+  1. Installs `faster-whisper` via pip (no build step required).
+  2. Pre-downloads the configured model to `~/.local/share/earshot/models/` (default: `tiny.en`, ~35 MB INT8 quantization).
   3. Writes `transcription.enabled = true` and `transcription.model` to `config.toml`.
-- Users who do not want transcription can set `transcription.enabled = false` in `config.toml` after installation, or pass `--no-transcription` to the installer to skip the whisper.cpp and model download entirely.
+- Users who do not want transcription can set `transcription.enabled = false` in `config.toml` after installation, or pass `--no-transcription` to the installer to skip the model download.
 
 ---
 

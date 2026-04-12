@@ -7,8 +7,10 @@
 - Default storage path: `~/earshot/recordings/<YYYYMMDDTHHMMSS>/` (e.g. `20260329T143022`)
 - The recordings directory is configurable via `storage.recordings_dir` in `config.toml`.
 - Within each session directory, chunks are stored as sequentially numbered files:
-  - `audio_001.opus`, `audio_002.opus`, … — encoded chunks
-  - `audio_NNN.wav` — chunk currently being recorded or awaiting encoding
+  - `recording-001.wav`, `recording-002.wav`, … — captured WAV chunks
+  - `session.wav` — concatenated WAV (created at end of recording)
+  - `session.opus` — encoded opus (created at end of recording)
+  - `transcript.md` — transcription output (if transcription is enabled)
 
 ### Disk Space Management
 - Disk space is checked before each new recording begins.
@@ -17,24 +19,27 @@
 - Threshold is configurable (default: 90% disk usage) to avoid completely filling the SD card.
 
 ### Recording Pipeline
-1. Capture audio to a numbered WAV file (e.g. `audio_001.wav`).
-2. When the chunk duration is reached (or recording stops), close the WAV and encode to Opus.
-3. Delete the WAV once the `.opus` file is confirmed written.
-4. If recording continues, begin the next chunk (`audio_002.wav`, etc.) while encoding runs in the background.
-5. When the session ends and all chunks are encoded, queue the session for transcription (if `transcription.enabled = true`). See [transcription.md](transcription.md).
+1. Capture audio to a numbered WAV file (e.g. `recording-001.wav`).
+2. When the chunk duration is reached, close the WAV and begin the next chunk (`recording-002.wav`, etc.).
+3. Repeat until the button is pressed to end the recording session.
+4. When the session ends:
+   - All `recording-*.wav` chunks are concatenated into `session.wav` (copy mux, no re-encoding).
+   - The `session.wav` is encoded to `session.opus` (configurable bitrate, default 32 kbps stereo).
+   - Session is queued for transcription (if `transcription.enabled = true`). See [transcription.md](transcription.md).
+5. WAV files are retained on the device for crash recovery and future analysis (see [transcription.md](transcription.md) FR-14 for details on pending sessions).
 
 ### Filesystem as State
 The filesystem is the source of truth for recording state — no database is used.
 
 | Directory contents | Meaning |
 |---|---|
-| `audio_NNN.wav` only | Chunk currently recording or interrupted before encode |
-| `audio_NNN.wav` + `audio_NNN.opus` | Chunk encode in progress |
-| `audio_NNN.opus` only (no `transcript.md`) | Chunk encoded; session pending transcription |
-| `audio_NNN.opus` + `transcript.md` | Session fully processed (encoded + transcribed) |
-| `audio_NNN.wav` + `.failed_NNN` marker | Encoding failed for that chunk; WAV retained |
+| `recording-NNN.wav` (×N) only | Recording in progress |
+| `recording-NNN.wav` (×N) + `session.wav` | Recording ended, chunks concatenated |
+| `recording-NNN.wav` (×N) + `session.wav` + `session.opus` | Recording encoded; session pending transcription |
+| `session.opus` + `transcript.md` | Session fully processed (encoded + transcribed) |
+| `recording-NNN.wav` + `.failed_NNN` marker | Orphaned WAV from prior crash (recovery path) |
 
-On boot, any session directory containing a WAV with no corresponding Opus (and no `.failed` marker) is treated as interrupted — encoding is retried automatically.
+On boot, any session directory containing `recording-*.wav` with no `session.wav` is treated as an interrupted recording — the individual WAV files are available for manual recovery (via `_recover_orphaned_wavs()`). A session with `session.wav` but no `session.opus` will have encoding retried. A session with `session.opus` but no `transcript.md` will be queued for transcription (if enabled).
 
 ---
 

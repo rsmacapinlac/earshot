@@ -7,8 +7,6 @@
 | Booting | White | Slow pulsating |
 | Ready / idle | Green | Solid |
 | Recording | Red | Slow pulsating |
-| Encoding | Blue | Slow pulsating |
-| Encoding failure | Red | Fast blink (×3) then returns to green |
 | USB transfer | Blue | Slow pulsating |
 | USB transfer complete | Blue | Single flash |
 | USB transfer error | Orange | Slow pulsating |
@@ -52,18 +50,17 @@
 ### FR-2a: Chunked Recording
 - Within a session, audio is recorded in configurable chunks (default: 15 minutes).
 - When the chunk duration is reached, the current chunk is closed and a new chunk file begins automatically without interrupting the session.
-- Completed chunks are encoded to Opus in the background while the next chunk records (pipeline encoding).
+- Completed chunks are retained as WAV files on the device; no background encoding occurs during recording.
 - Chunk duration is configurable via `recording.chunk_duration_seconds` in `config.toml`.
 - There is no maximum session duration — recording continues until the button is pressed or the disk threshold is reached.
-- **If the disk threshold is reached mid-session:** recording stops immediately, the current chunk WAV is closed, and encoding is attempted. If encoding fails due to insufficient disk space, the WAV is retained with a `.failed_NNN` marker — the standard encoding failure path (FR-6a) applies.
+- **If the disk threshold is reached mid-session:** recording stops immediately, the current chunk WAV is closed. Concatenation and encoding are attempted after recording stops. If encoding fails due to insufficient disk space, the WAV files are retained for manual recovery or retry on next boot.
 
 ## FR-3: Stop Recording
 - Pressing the button again stops the session (subject to minimum duration).
-- The current chunk is closed and encoded to Opus. Any previous chunks are already encoded via the pipeline.
-- The LED pulsates **blue** (slow) while the final chunk is encoding.
-- The LED returns to solid **green** once encoding is complete and the device is ready for a new recording.
-- If a chunk fails to encode, the LED fast-blinks **red** three times before returning to solid **green**; the raw WAV is retained alongside any successfully encoded chunks.
-- Button presses are ignored during encoding — new recordings are blocked until the device returns to idle.
+- Recording completes immediately; all WAV chunks are concatenated into `session.wav` and encoded to `session.opus` without user-visible delay.
+- The LED transitions from red pulsate directly to green solid once recording ends and encoding completes.
+- If concatenation or encoding fails, an error is logged but the session persists. The LED returns to green; transcription may still proceed if a partial `session.opus` was written.
+- Button presses are ignored during recording or if an error is being logged — new recordings are blocked until the device returns to idle.
 
 ## FR-4: Safe Shutdown
 - Holding the button for 3 seconds while idle initiates a safe shutdown (duration configurable).
