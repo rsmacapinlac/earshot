@@ -1,10 +1,10 @@
-"""Transcription process: WAV file → faster_whisper → segment list (FR-15).
+"""Transcription process: Opus file → faster_whisper → segment list (FR-15).
 
 Pipeline:
 
-    faster_whisper.WhisperModel.transcribe(session.wav)
+    faster_whisper.WhisperModel.transcribe(session.opus)
 
-The session.wav file is pre-concatenated from individual recording chunks
+The session.opus file is created by encoding pre-concatenated WAV chunks
 at the end of the recording session.
 
 faster_whisper yields timestamped Segment objects with .start, .end (float seconds), .text.
@@ -14,6 +14,7 @@ Segments are converted to {"from_ms": int, "to_ms": int, "text": str} format.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 from faster_whisper import WhisperModel
@@ -26,7 +27,7 @@ def transcribe_session(
     model: WhisperModel,
     cancel: threading.Event,
 ) -> list[dict] | None:
-    """Transcribe the pre-concatenated session.wav file using faster_whisper.
+    """Transcribe the encoded session.opus file using faster_whisper.
 
     Returns a list of ``{"from_ms": int, "to_ms": int, "text": str}`` dicts
     on success, an empty list if the audio yields no speech, or ``None`` on

@@ -329,6 +329,10 @@ class EarshotApp:
             if not session_dir.is_dir():
                 continue
 
+            # Skip recovery if session.opus already exists (properly encoded session).
+            if (session_dir / "session.opus").exists():
+                continue
+
             numbered = sorted(session_dir.glob("recording-*.wav"))
             legacy = session_dir / "recording.wav"
             candidates: list[tuple[Path, str, str]] = []
@@ -371,7 +375,8 @@ class EarshotApp:
                     failed_path.touch()
                     continue
 
-                wav_path.unlink(missing_ok=True)
+                # Keep WAV files for crash recovery and future analysis.
+                # Do not delete wav_path.
 
                 if duration_s < cfg.recording.min_duration_seconds:
                     _log.warning(
@@ -537,11 +542,10 @@ class EarshotApp:
                     # Continue without opus; transcription can still happen
 
             # Save status for earshot-tui.
-            session_dt = datetime.strptime(session_stamp, "%Y%m%dT%H%M%S")
             status = Status(
-                status="downloaded",
+                status="recorded",
                 device="earshot",
-                recorded_at=session_dt,
+                recorded_at=datetime.now(),
                 duration=0.0,  # Duration will be probed by earshot-tui on import
             )
             save_status(session_dir, status)

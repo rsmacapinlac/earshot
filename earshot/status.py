@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-StatusState = Literal["new", "downloaded", "processing", "transcribed", "failed", "interrupted"]
+StatusState = Literal["recorded", "downloaded", "transcribed", "failed", "interrupted"]
 
 
 class Status:
