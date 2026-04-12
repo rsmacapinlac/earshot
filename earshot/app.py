@@ -552,7 +552,7 @@ class EarshotApp:
                             "ffprobe",
                             "-v", "error",
                             "-show_entries", "format=duration",
-                            "-of", "default=noprint_wrappers=1:nokey=1:csv=p=0",
+                            "-of", "default=noprint_wrappers=1:nokey=1",
                             str(session_opus),
                         ],
                         capture_output=True,
