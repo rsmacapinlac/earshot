@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-StatusState = Literal["recorded", "downloaded", "transcribed", "failed", "interrupted"]
+StatusState = Literal["recorded", "encoded", "transcribed", "failed", "interrupted"]
 
 
 class Status:
@@ -22,7 +22,6 @@ class Status:
         device: str,
         recorded_at: datetime,
         duration: float = 0.0,
-        downloaded_at: datetime | None = None,
         transcribed_at: datetime | None = None,
         error: str = "",
     ) -> None:
@@ -30,7 +29,6 @@ class Status:
         self.device = device
         self.recorded_at = recorded_at
         self.duration = duration
-        self.downloaded_at = downloaded_at
         self.transcribed_at = transcribed_at
         self.error = error
 
@@ -42,8 +40,6 @@ class Status:
             "recorded_at": self.recorded_at.isoformat(),
             "duration": self.duration,
         }
-        if self.downloaded_at is not None:
-            result["downloaded_at"] = self.downloaded_at.isoformat()
         if self.transcribed_at is not None:
             result["transcribed_at"] = self.transcribed_at.isoformat()
         if self.error:
@@ -58,11 +54,6 @@ class Status:
             device=data["device"],
             recorded_at=datetime.fromisoformat(data["recorded_at"]),
             duration=data.get("duration", 0.0),
-            downloaded_at=(
-                datetime.fromisoformat(data["downloaded_at"])
-                if "downloaded_at" in data and data["downloaded_at"]
-                else None
-            ),
             transcribed_at=(
                 datetime.fromisoformat(data["transcribed_at"])
                 if "transcribed_at" in data and data["transcribed_at"]

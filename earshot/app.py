@@ -565,7 +565,7 @@ class EarshotApp:
                     _log.warning("Failed to extract duration from %s: %s", session_opus.name, exc)
 
             status = Status(
-                status="recorded",
+                status="encoded",
                 device="earshot",
                 recorded_at=datetime.now(),
                 duration=duration_s,
