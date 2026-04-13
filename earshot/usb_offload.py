@@ -99,23 +99,19 @@ def move_recordings_to_stick(recordings_root: Path, mount: Path) -> None:
 
 
 def _move_session(src: Path, dest: Path) -> None:
-    """Copy relevant files from *src* to *dest*, verify sizes, then remove originals.
+    """Copy all files from *src* to *dest*, verify sizes, then remove originals.
 
-    Skips:
-    - session.wav: kept on Pi for transcription
-    - recording-*.wav: individual chunks, only needed if concatenation failed
-
-    Moves:
+    Moves all session files to USB:
+    - session.wav: concatenated raw audio
+    - recording-*.wav: individual chunks
     - session.opus: compressed audio for offload
     - transcript.md: transcription results
+    - transcript_raw.json: raw segment data
     - status.json: metadata
     """
     dest.mkdir(parents=True, exist_ok=True)
     for src_file in sorted(src.iterdir()):
         if src_file.is_dir():
-            continue
-        # Skip WAV files (keep them on Pi)
-        if src_file.suffix == ".wav":
             continue
         dest_file = dest / src_file.name
         try:
@@ -131,4 +127,4 @@ def _move_session(src: Path, dest: Path) -> None:
     try:
         src.rmdir()
     except OSError:
-        pass  # Non-empty (e.g. session.wav or new file written during offload) — leave it.
+        pass  # Non-empty if new file written during offload — leave it.
