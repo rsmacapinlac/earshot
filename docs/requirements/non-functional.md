@@ -21,6 +21,22 @@ Startup time targets differ by SBC due to CPU speed:
 - Real-time / live transcription during recording
 - Multi-device coordination
 - Web UI or local dashboard
-- Speaker identification / diarization (who is speaking)
+- Speaker identification / diarization (who is speaking) — *see Constraints below*
 - Server-side transcription
 - Audio feedback / speaker output (deferred to v2)
+
+## Constraints
+
+### Diarization Not Feasible on Pi
+
+Speaker diarization (identifying which speaker is currently speaking) cannot be implemented on-device due to ARM64 hardware limitations:
+
+**Root cause:** The diarization pipeline (pyannote.audio + speaker embedding models) requires CUDA-capable GPU acceleration or extremely long inference times (~5+ minutes for a 15-minute session). Raspberry Pi has no CUDA support and lacks the CPU performance to run diarization inference in reasonable time.
+
+**Technical details:**
+- pyannote.audio uses PyTorch models that require `torchcodec` for audio loading
+- torchcodec requires CUDA to build; no pre-built ARM64 wheels exist
+- Alternative approaches (FFmpeg subprocess for audio loading) succeeded in loading audio but diarization inference remained impractical: >5 minute timeout on ARM64, no speakers detected
+- The speech embedding and clustering models are designed for GPU computation; CPU-only inference on ARM is orders of magnitude slower
+
+**Recommendation:** If speaker identification is needed, offload recordings and process with desktop tools (e.g., pyannote on a laptop with GPU) as part of post-processing workflow. This is consistent with Earshot's philosophy: on-device recording only; processing deferred to USB offload + companion tools.
