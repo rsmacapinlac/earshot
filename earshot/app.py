@@ -27,7 +27,7 @@ from earshot.storage import (
     recording_directory,
     recordings_root,
 )
-from earshot.transcription import pending_sessions, transcribe_session, write_transcript
+from earshot.transcription import pending_sessions, transcribe_session, write_transcript, write_transcript_raw
 from earshot.usb_offload import (
     eject_usb_device,
     find_usb_device,
@@ -623,13 +623,16 @@ class EarshotApp:
                 )
                 return "done"
 
-            write_transcript(session_dir, result)
+            # Capture shared timestamp for transcript_raw, transcript.md, and status.json
+            transcribed_at = datetime.now()
+            write_transcript_raw(session_dir, result, transcribed_at=transcribed_at)
+            write_transcript(session_dir, result, processed_at=transcribed_at)
 
             # Update status to transcribed for earshot-tui.
             status = load_status(session_dir)
             if status is not None:
                 status.status = "transcribed"
-                status.transcribed_at = datetime.now()
+                status.transcribed_at = transcribed_at
                 save_status(session_dir, status)
 
             transcribed += 1

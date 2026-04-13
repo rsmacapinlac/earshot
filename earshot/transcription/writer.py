@@ -14,6 +14,7 @@ Output format (earshot-tui compatible)::
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -80,4 +81,25 @@ def write_transcript(
 
     out_path = session_dir / "transcript.md"
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return out_path
+
+
+def write_transcript_raw(
+    session_dir: Path,
+    segments: list[dict],
+    *,
+    transcribed_at: datetime | None = None,
+) -> Path:
+    """Write ``transcript_raw.json`` to *session_dir* and return its path.
+
+    Saves the raw faster-whisper segment data before markdown formatting.
+    *transcribed_at* is the timestamp when transcription completed.
+    """
+    now = transcribed_at or datetime.now()
+    payload = {
+        "transcribed_at": now.isoformat(),
+        "segments": segments,
+    }
+    out_path = session_dir / "transcript_raw.json"
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
