@@ -6,8 +6,6 @@ Post-recording processing has two stages: concatenation & encoding (always on) a
 2. The `session.wav` is encoded to `session.opus` (stereo, 16kHz, default 32 kbps, configurable).
 3. Once the `session.opus` is confirmed written, the session is queued for transcription if `transcription.enabled = true`.
 
-No diarization is performed on-device.
-
 > See [device-state.md](device-state.md) for LED behaviour during transcription states (encoding is not user-visible).
 > See [transcription.md](transcription.md) for transcription queue, format, and hardware requirements.
 

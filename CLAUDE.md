@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Earshot is a Raspberry Pi 4B application that records conversations locally, diarizes speakers, and transcribes audio — entirely on-device. See `README.md` for a full description.
+Earshot is a Raspberry Pi 4B application that records conversations locally and transcribes audio — entirely on-device. See `README.md` for a full description.
 
-**Status:** Architecture and requirements phase — source code not yet written.
+**Status:** Active development.
 
 ## Key Docs
 

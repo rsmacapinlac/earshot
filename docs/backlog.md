@@ -26,14 +26,6 @@ Speaker output is available on the Whisplay HAT but not implemented in v1.
 
 ---
 
-## Speaker Diarization
-
-| ID | Item | Notes |
-|---|---|---|
-| B-D1 | On-device speaker diarization | Identify distinct speakers in the transcript (Speaker 1, Speaker 2, …). Not speaker identification — just that speakers differ. Requires a diarization model (e.g. pyannote) that fits within hardware constraints. RAM budget on Pi Zero 2W makes this impractical; Pi 4B only. |
-
----
-
 ## Recording
 
 | ID | Item | Notes |

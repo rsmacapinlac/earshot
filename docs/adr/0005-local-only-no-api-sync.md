@@ -10,13 +10,13 @@ The device has two target form factors with distinct offload needs: a desk-mount
 
 ## Decision
 
-Earshot is a local-only audio recorder. No API endpoint, no network upload, no transcription or diarization. Recordings are Opus-encoded audio files offloaded physically via USB.
+Earshot is a local-only audio recorder with on-device transcription. No API endpoint, no network upload, no external service dependencies. Recordings are Opus-encoded audio files offloaded physically via USB.
 
 WiFi remains configured at the OS level for SSH access during setup and configuration, but the application has no network dependency.
 
 ## Consequences
 
-- No API credentials, authentication, or endpoint configuration required.
+- No external API credentials, authentication, or endpoint configuration required.
 - No background upload worker, connectivity polling, or sync state.
-- Recordings are audio-only — transcription must be done by the user after offload, using external tools.
-- The installer is significantly simpler: no Hugging Face token, no model download, no API config step.
+- On-device transcription using open-source models (Whisper via faster-whisper).
+- All processing and storage is local — no data leaves the device.
