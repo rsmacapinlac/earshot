@@ -24,8 +24,8 @@ Hardware-specific components are implemented behind interfaces (see ADR-0003). E
 | `ButtonInterface` | Button press and hold detection | Simulates events via keyboard or test input |
 | `LEDInterface` | LED colour and pattern control | Logs colour/pattern to stdout |
 | `AudioCaptureInterface` | Microphone audio capture via ALSA | Reads from a fixture WAV file |
-| `AudioOutputInterface` | Speaker output (Whisplay HAT only) | No-op |
-| `DisplayInterface` | LCD display rendering (Whisplay HAT only) | Prints ASCII frames to stdout |
+| `AudioOutputInterface` | Speaker output | No-op |
+| `DisplayInterface` | LCD display rendering | Prints ASCII frames to stdout |
 
 The active HAT implementation is selected at startup based on `hardware.hat` in `config.toml`. Pass `--stub` to force stub implementations regardless of environment:
 
@@ -82,7 +82,6 @@ Maintain a small set of real recordings in `tests/fixtures/` as regression fixtu
 
 | Config | SBC | HAT |
 |---|---|---|
-| Desk | Pi 4B | ReSpeaker 2-Mic or Whisplay |
-| Portable | Pi Zero 2W | Whisplay |
+| Desk | Pi 4B | ReSpeaker 2-Mic |
 
 See [hardware.md](requirements/hardware.md) for full component details.

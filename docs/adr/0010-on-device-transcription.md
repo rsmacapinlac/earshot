@@ -89,7 +89,7 @@ Default model: `tiny.en` (INT8). Suitable for both Pi 4B and Pi Zero 2W. Users m
 
 - faster-whisper is installed as a Python package via pip. CTranslate2 wheels include optimized ARM64 binaries; no build step is required.
 - Quantized model files are stored on the SD card (e.g. `~/.local/share/earshot/models/`). The tiny.en INT8 model is ~35 MB; base.en INT8 is ~60 MB.
-- A new device state is introduced: **Transcribing** — idle with transcription queue active. LED: amber slow pulsate. This state is transparent on the ReSpeaker HAT (LED only); the LCD shows queue depth and current session.
+- A new device state is introduced: **Transcribing** — idle with transcription queue active. LED: amber slow pulsate.
 - Transcription of a 15-minute session takes approximately 3–6 minutes on Pi 4B (tiny.en) and 7–18 minutes on Pi Zero 2W. Long sessions on Pi Zero 2W may queue for hours; this is expected and documented.
 - Interrupted transcription (power loss or new recording) leaves no partial output. The session remains queued and is retried from the beginning.
 - USB offload is not gated on transcription completion. Sessions are offloaded regardless of transcription state. A future option (`storage.require_transcript_before_offload`) may gate offload on transcript availability — deferred to a later release.

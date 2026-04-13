@@ -23,16 +23,10 @@ To safely shut down, hold the button for 3 seconds while idle.
 
 ## Hardware
 
-2 use-cases (therefore two sets of hardware):
+Tested and supported:
 
-On the desk:
 - Raspberry Pi 4B (2GB minimum, 4GB recommended)
-- Seeed ReSpeaker 2-Mic Pi HAT or Whisplay HAT
-
-Portable
-- Raspberry Pi Zero 2 W
-- Whisplay Hat
-- PiSugar S for Zero (or equivalent) — connects via pogo pins, no USB ports occupied
+- Seeed ReSpeaker 2-Mic Pi HAT
 
 ## OS Requirements
 

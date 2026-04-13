@@ -180,8 +180,6 @@ class EarshotApp:
             while True:
                 if _usb_wants_offload():
                     return "usb"
-                if _gadget_wants_activate():
-                    return "gadget"
                 if not hal.button.pressed():
                     time.sleep(poll_s)
                     if not hal.button.pressed():
@@ -201,8 +199,6 @@ class EarshotApp:
             while not hal.button.pressed():
                 if _usb_wants_offload():
                     return "usb"
-                if _gadget_wants_activate():
-                    return "gadget"
                 if transcribe_after is not None and time.monotonic() >= transcribe_after:
                     if pending_sessions(recordings_root(self._cfg)):
                         return "transcribe"

@@ -50,11 +50,10 @@ def create_hal(cfg: AppConfig) -> Hal:
     mode = _hal_mode()
     if mode == "stub":
         return _stub_hal(cfg)
-    hat = cfg.hardware.hat
     if mode == "pi":
-        return _pi_hal(cfg, hat)
+        return _pi_hal(cfg)
     try:
-        return _pi_hal(cfg, hat)
+        return _pi_hal(cfg)
     except Exception:
         _log.exception("Pi HAL failed; falling back to stub hardware")
         return _stub_hal(cfg)
@@ -84,7 +83,7 @@ def _stub_hal(cfg: AppConfig) -> Hal:
     )
 
 
-def _pi_hal(cfg: AppConfig, hat: str) -> Hal:
+def _pi_hal(cfg: AppConfig) -> Hal:
     from earshot.hal.animator import LedAnimator
     from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton, PiLED
 

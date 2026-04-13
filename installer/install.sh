@@ -158,20 +158,8 @@ echo ""
 
 # ── HAT selection ────────────────────────────────────────────────────────────
 
-echo "Which HAT is connected?"
-echo "  1) Seeed ReSpeaker 2-Mic Pi HAT"
-echo "  2) (PiSugar)"
-echo ""
-while true; do
-    read -rp "Enter 1 or 2: " hat_choice
-    case "$hat_choice" in
-        1) HAT="respeaker"; break ;;
-        2) HAT="whisplay";  break ;;
-        *) echo "  Please enter 1 or 2." ;;
-    esac
-done
-echo ""
-log "Selected HAT: $HAT"
+HAT="respeaker"
+log "HAT: Seeed ReSpeaker 2-Mic Pi HAT"
 
 # ── System packages ─────────────────────────────────────────────────────────
 
@@ -209,85 +197,6 @@ if [ "$HAT" = "respeaker" ]; then
     fi
 
     ALSA_PCM="plughw:CARD=seeed2micvoicec,DEV=0"
-
-else
-    # HAT: upstream WM8960 driver (different from seeed-voicecard).
-    # The WM8960 codec driver (snd_soc_wm8960) is already compiled into the
-    # Raspberry Pi kernel — no DKMS or kernel headers needed.
-    log "Configuring WM8960 dtoverlay..."
-    # The upstream WM8960 driver is enabled via dtoverlay — no custom DKMS needed.
-    if [ -n "$_boot_cfg" ]; then
-        if ! grep -q "dtoverlay=wm8960-soundcard" "$_boot_cfg"; then
-            log "Adding dtoverlay=wm8960-soundcard to $_boot_cfg..."
-            echo "dtoverlay=wm8960-soundcard" | sudo tee -a "$_boot_cfg" >/dev/null
-        else
-            info "dtoverlay=wm8960-soundcard already present."
-        fi
-        # Enable SPI (required for the ST7789 LCD via luma.lcd).
-        if grep -q "^#dtparam=spi=on" "$_boot_cfg"; then
-            log "Enabling SPI (uncommenting dtparam=spi=on)..."
-            sudo sed -i "s/^#dtparam=spi=on/dtparam=spi=on/" "$_boot_cfg"
-        elif ! grep -q "^dtparam=spi=on" "$_boot_cfg"; then
-            log "Adding dtparam=spi=on to $_boot_cfg..."
-            echo "dtparam=spi=on" | sudo tee -a "$_boot_cfg" >/dev/null
-        else
-            info "dtparam=spi=on already present."
-        fi
-        # Pi Zero 2W: enable OTG gadget mode (FR-12).
-        # Check only in [all] section — the [cm5] section may have dwc2,dr_mode=host
-        # which only applies to CM5 and must not suppress the Zero's dwc2 entry.
-        if ! awk "/^\[all\]/,/^\[/" "$_boot_cfg" | grep -q "dtoverlay=dwc2"; then
-            log "Adding dtoverlay=dwc2 (USB gadget mode) to $_boot_cfg..."
-            sudo sed -i "/^\[all\]/a dtoverlay=dwc2" "$_boot_cfg"
-        else
-            info "dtoverlay=dwc2 already present in [all] section."
-        fi
-    else
-        err "Could not find Pi boot config.txt — add 'dtoverlay=wm8960-soundcard' manually."
-    fi
-
-    # Pi Zero 2W: load dwc2 module at boot for USB gadget mode (FR-12).
-    _cmdline=""
-    for _f in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
-        [ -f "$_f" ] && _cmdline="$_f" && break
-    done
-    if [ -n "$_cmdline" ]; then
-        if ! grep -q "modules-load=dwc2" "$_cmdline"; then
-            log "Adding modules-load=dwc2 to $_cmdline..."
-            sudo sed -i 's/$/ modules-load=dwc2/' "$_cmdline"
-        else
-            info "modules-load=dwc2 already present in $_cmdline."
-        fi
-    else
-        err "Could not find cmdline.txt — add 'modules-load=dwc2' to kernel cmdline manually."
-    fi
-
-    ALSA_PCM="plughw:CARD=wm8960soundcard,DEV=0"
-
-    # The WM8960 driver defaults leave the input boost preamp disconnected from
-    # the ADC and the capture gain too low for clear recordings.  Configure the
-    # full capture chain and persist via alsactl so settings survive reboots:
-    #   - Input Mixer Boost: connects mic preamp output to ADC (required)
-    #   - LINPUT1 boost: +20 dB analog boost stage before the ADC
-    #   - Capture (PGA): +30 dB mic preamp gain (maximum)
-    log "Configuring WM8960 capture mixer..."
-    if command -v amixer &>/dev/null; then
-        amixer -c wm8960soundcard sset "Left Input Mixer Boost"           on >/dev/null
-        amixer -c wm8960soundcard sset "Right Input Mixer Boost"          on >/dev/null
-        amixer -c wm8960soundcard sset "Left Input Boost Mixer LINPUT1"    2 >/dev/null
-        amixer -c wm8960soundcard sset "Right Input Boost Mixer RINPUT1"   2 >/dev/null
-        amixer -c wm8960soundcard sset "Capture"                          63 >/dev/null
-        sudo alsactl store
-        info "WM8960 capture mixer configured and saved."
-    else
-        err "amixer not found — run manually after reboot:"
-        err "  amixer -c wm8960soundcard sset 'Left Input Mixer Boost' on"
-        err "  amixer -c wm8960soundcard sset 'Right Input Mixer Boost' on"
-        err "  amixer -c wm8960soundcard sset 'Left Input Boost Mixer LINPUT1' 2"
-        err "  amixer -c wm8960soundcard sset 'Right Input Boost Mixer RINPUT1' 2"
-        err "  amixer -c wm8960soundcard sset 'Capture' 63"
-        err "  sudo alsactl store"
-    fi
 fi
 
 # ── System dependencies ─────────────────────────────────────────────────────
@@ -430,7 +339,7 @@ header = (
     "# Edit this file to customise behaviour.\n"
     "# Apply changes: sudo systemctl restart earshot\n"
     "#\n"
-    "# hardware.hat — connected HAT: 'respeaker' or 'whisplay'\n"
+    "# hardware.hat — connected HAT: 'respeaker'\n"
     "#\n"
     "# audio.alsa_pcm — ALSA capture device for arecord (preferred on Pi).\n"
     "#   Run: arecord -l   Use plughw:CARD,DEVICE (rate conversion).\n"
@@ -485,96 +394,6 @@ SUBSYSTEM=="block", KERNEL=="sd?[0-9]", ENV{ID_FS_TYPE}=="vfat", TAG+="systemd",
 UDEV
     sudo udevadm control --reload-rules
     info "udev rule written to $UDEV_RULE"
-else
-    # FR-12: Pi Zero 2W gadget mode — install helper scripts + narrow sudoers rules.
-    # We install helpers to /usr/local/bin so sudoers can reference fixed absolute
-    # paths with no wildcards (Debian Trixie visudo rejects wildcard mount args).
-    log "Installing USB gadget helper scripts..."
-
-    sudo install -m 755 /dev/stdin /usr/local/bin/earshot-gadget-on <<'GADGETON'
-#!/bin/bash
-# Earshot FR-12: USB gadget helper — probe detection and mass-storage activation.
-# Runs with CAP_SYS_MODULE and CAP_SYS_ADMIN inherited from the earshot service.
-#
-# Usage:
-#   earshot-gadget-on probe             — load g_zero to detect VBUS
-#   earshot-gadget-on activate <dir>    — create FAT32 image from <dir>, load g_mass_storage
-set -euo pipefail
-export PATH="/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
-
-CMD="${1:-activate}"
-# Use /tmp so the service user can write without root ownership issues.
-IMAGE="/tmp/earshot-recordings.img"
-
-case "$CMD" in
-  probe)
-    # Load a minimal gadget so the UDC can report VBUS / host connection state.
-    # Runs with CAP_SYS_MODULE inherited from the earshot service.
-    modprobe g_zero 2>/dev/null || true
-    ;;
-
-  activate)
-    RECORDINGS_DIR="${2:?recordings dir required for activate}"
-
-    # Calculate required image size: recordings content + 20 % margin, min 32 MB.
-    USED_KB=$(du -sk "$RECORDINGS_DIR" 2>/dev/null | awk '{print $1}')
-    USED_KB=${USED_KB:-0}
-    SIZE_KB=$(( (USED_KB * 12 / 10) + 32768 ))   # +20% then +32 MB floor
-    [ "$SIZE_KB" -lt 32768 ] && SIZE_KB=32768
-
-    # Unload any existing gadget modules — modprobe won't reload an already-loaded
-    # module, so if g_mass_storage is stale from a previous session the new
-    # image file= parameter would be silently ignored without this.
-    modprobe -r g_mass_storage 2>/dev/null || true
-    modprobe -r g_zero 2>/dev/null || true
-    rm -f "$IMAGE"
-
-    # Create sparse FAT32 image (seek= makes it sparse; no data written for count=0).
-    dd if=/dev/zero of="$IMAGE" bs=1024 count=0 seek="$SIZE_KB" 2>/dev/null
-    /sbin/mkfs.fat -F 32 -n EARSHOT "$IMAGE" >/dev/null 2>&1
-
-    # Copy recordings into the image using mtools (no loop-mount or root needed).
-    # MTOOLS_SKIP_CHECK=1 suppresses disk-geometry warnings on sparse images.
-    export MTOOLS_SKIP_CHECK=1
-    for entry in "$RECORDINGS_DIR"/*/; do
-        [ -d "$entry" ] || continue
-        session_name=$(basename "$entry")
-        mmd -i "$IMAGE" "::$session_name" 2>/dev/null || true
-        mcopy -i "$IMAGE" -s "$entry"* "::$session_name/" 2>/dev/null || true
-    done
-
-    # Expose the image as a USB mass storage device (read-write so the user
-    # can delete sessions on the laptop; deletions are synced back on disconnect).
-    modprobe g_mass_storage "file=$IMAGE" ro=0 removable=1
-    ;;
-
-  *)
-    echo "Usage: $0 {probe|activate <recordings-dir>}" >&2
-    exit 1
-    ;;
-esac
-GADGETON
-
-    sudo install -m 755 /dev/stdin /usr/local/bin/earshot-gadget-off <<'GADGETOFF'
-#!/bin/bash
-# Earshot FR-12: deactivate USB gadget and clean up image.
-# Runs with CAP_SYS_MODULE inherited from the earshot service.
-set -euo pipefail
-export PATH="/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
-modprobe -r g_mass_storage 2>/dev/null || true
-modprobe -r g_zero 2>/dev/null || true
-rm -f /tmp/earshot-recordings.img
-GADGETOFF
-
-    log "Installing sudoers rules for USB gadget mode..."
-    SUDOERS_FILE="/etc/sudoers.d/earshot-gadget"
-    cat <<SUDOERS | sudo tee "$SUDOERS_FILE" >/dev/null
-# Earshot: allow service user to manage USB gadget without a password (FR-12).
-$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/local/bin/earshot-gadget-on
-$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/local/bin/earshot-gadget-off
-SUDOERS
-    sudo chmod 440 "$SUDOERS_FILE"
-    info "sudoers rule written to $SUDOERS_FILE"
 fi
 
 # ── systemd ──────────────────────────────────────────────────────────────────
@@ -606,11 +425,6 @@ if ! $SKIP_TRANSCRIPTION; then
     echo "║                                                              ║"
     echo "║  Transcription: amber LED pulsates while transcribing.      ║"
     echo "║  Disable: set transcription.enabled = false in config.toml ║"
-fi
-if [ "$HAT" = "whisplay" ]; then
-echo "║                                                              ║"
-echo "║  HAT: plug into a laptop USB port to offload       ║"
-echo "║  recordings via USB mass storage (FR-12).                   ║"
 fi
 echo "║                                                              ║"
 echo "║  Optional: add a phone hotspot for SSH access on the go:   ║"

@@ -72,5 +72,3 @@
 ## FR-5: Audio Feedback *(deferred to v2)*
 
 Speaker output is available. Audio cues on state transitions are planned for v2. No `AudioOutputInterface` implementation is required for v1.
-
-> See [display.md](display.md) for corresponding LCD display behaviour.
