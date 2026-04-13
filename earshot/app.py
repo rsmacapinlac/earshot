@@ -6,6 +6,7 @@ import errno
 import logging
 import re as _re
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -487,7 +488,7 @@ class EarshotApp:
 
             status = Status(
                 status="encoded",
-                device="earshot",
+                device=socket.gethostname(),
                 recorded_at=datetime.now(),
                 duration=duration_s,
             )
