@@ -28,7 +28,6 @@ from earshot.storage import (
 )
 from earshot.transcription import pending_sessions, transcribe_session, write_transcript
 from earshot.usb_offload import (
-    GadgetOffload,
     eject_usb_device,
     find_usb_device,
     find_usb_mount,
@@ -47,7 +46,6 @@ class EarshotApp:
         self._usb_stick_pending = threading.Event()
         self._usb_error = threading.Event()
         self._usb_stop = threading.Event()
-        self._gadget: GadgetOffload | None = None
 
     def run(self) -> None:
         cfg = self._cfg
@@ -76,20 +74,11 @@ class EarshotApp:
         )
         usb_thread.start()
 
-        # FR-12: Pi Zero 2W USB gadget mode — only on whisplay (Zero 2W) hardware.
-        gadget = None
-        if cfg.hardware.hat == "whisplay":
-            gadget = GadgetOffload(recordings_root(cfg))
-            gadget.start()
-        self._gadget = gadget
-
         try:
             self._main_loop()
         finally:
             self._usb_stop.set()
             usb_thread.join(timeout=5.0)
-            if gadget is not None:
-                gadget.stop()
             hal.close()
 
     def _disk_blocked(self) -> bool:
@@ -139,32 +128,6 @@ class EarshotApp:
                 self._usb_offload()
                 continue
 
-            # USB gadget: cable detected → load g_mass_storage, wait for host.
-            if self._gadget is not None and self._gadget.pending.is_set() and not self._gadget.is_active:
-                if self._gadget.activate():
-                    # g_mass_storage is loaded; wait for the host to enumerate.
-                    # Show IDLE while waiting, TRANSFER once the host connects.
-                    while self._gadget.is_active and not self._usb_stop.is_set():
-                        if not self._gadget.pending.is_set():
-                            break  # host disconnected → monitor deactivated
-                        if hal.button.pressed():
-                            # Button press exits transfer mode — user has finished.
-                            _log.info("Button pressed during USB transfer — returning to idle")
-                            self._gadget.deactivate()
-                            self._gadget.pending.clear()
-                            break
-                        if self._gadget.host_connected.is_set():
-                            hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
-                            hal.display.update(
-                                "USB_TRANSFER",
-                                {"sessions_label": f"{self._sessions_count()} sessions"},
-                            )
-                        else:
-                            self._set_idle_led(False)  # loaded but no host yet
-                        time.sleep(0.5)
-                self._set_idle_led(self._disk_blocked())
-                continue
-
             self._set_idle_led(False)
             _log.info("Ready: green = idle, orange = disk full, press button to record.")
 
@@ -182,8 +145,6 @@ class EarshotApp:
                 if transcription_result == "button":
                     # Button pressed during transcription — start recording immediately.
                     if not self._disk_blocked():
-                        if self._gadget is not None and self._gadget.is_active:
-                            self._gadget.deactivate()
                         self._recording_session()
                 # USB stick insertion or end of queue handled on next loop iteration.
                 continue
@@ -193,38 +154,11 @@ class EarshotApp:
             if self._disk_blocked():
                 continue
 
-            # If USB gadget is active (cable connected), deactivate before recording.
-            if self._gadget is not None and self._gadget.is_active:
-                self._gadget.deactivate()
-
             self._recording_session()
 
             # USB stick was inserted during recording → offload now that session is done.
             if self._usb_stick_pending.is_set() and not self._usb_error.is_set():
                 self._usb_offload()
-            # USB gadget was pending during recording → activate now.
-            elif self._gadget is not None and self._gadget.pending.is_set() and not self._gadget.is_active:
-                hal = self._hal
-                assert hal is not None
-                if self._gadget.activate():
-                    while self._gadget.is_active and not self._usb_stop.is_set():
-                        if not self._gadget.pending.is_set():
-                            break
-                        if hal.button.pressed():
-                            _log.info("Button pressed during USB transfer — returning to idle")
-                            self._gadget.deactivate()
-                            self._gadget.pending.clear()
-                            break
-                        if self._gadget.host_connected.is_set():
-                            hal.led.set_colour_and_pattern(0, 0, 255, LedPattern.SLOW_PULSE)
-                            hal.display.update(
-                                "USB_TRANSFER",
-                                {"sessions_label": f"{self._sessions_count()} sessions"},
-                            )
-                        else:
-                            self._set_idle_led(False)
-                        time.sleep(0.5)
-                self._set_idle_led(self._disk_blocked())
 
     def _wait_idle_button(self, transcribe_after: float | None = None) -> str:
         """Wait for a debounced short click (record), long hold (shutdown), or transcribe timeout."""
@@ -238,18 +172,9 @@ class EarshotApp:
         def _usb_wants_offload() -> bool:
             return self._usb_stick_pending.is_set() and not self._usb_error.is_set()
 
-        def _gadget_wants_activate() -> bool:
-            return (
-                self._gadget is not None
-                and self._gadget.pending.is_set()
-                and not self._gadget.is_active
-            )
-
         while True:
             if _usb_wants_offload():
                 return "usb"
-            if _gadget_wants_activate():
-                return "gadget"
 
             # Wait for a stable released state.
             while True:

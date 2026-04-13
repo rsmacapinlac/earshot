@@ -23,4 +23,4 @@ Startup time targets differ by SBC due to CPU speed:
 - Web UI or local dashboard
 - Speaker identification / diarization (who is speaking)
 - Server-side transcription
-- Audio feedback / speaker output (hardware present on Whisplay HAT — deferred to v2)
+- Audio feedback / speaker output (deferred to v2)

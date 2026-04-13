@@ -3,7 +3,7 @@
 On-device transcription is an opt-in feature that converts completed recording sessions to text using faster-whisper (CTranslate2-based inference). Transcription runs during idle time and does not compete with recording.
 
 > See [device-state.md](device-state.md) for LED behaviour during the Transcribing state.
-> See [display.md](display.md) for Whisplay HAT LCD behaviour during transcription.
+> See [display.md](display.md) for LCD behaviour during transcription.
 > See [configuration.md](configuration.md) for the `[transcription]` config section.
 
 ---
@@ -76,7 +76,7 @@ The output file is `transcript.md` in the session directory. The format is compa
 - While transcription is running, the LED pulsates **amber** (slow, ~1.5–2 second cycle).
 - Amber is distinct from warning **orange** (`#FF8000`) — amber uses `#FFB300` (more yellow). The slower pulsate cycle further differentiates it from orange warning states.
 - When the transcription queue empties, the LED returns to solid **green** (standard idle state). No flash or transition animation.
-- On the Whisplay HAT, the LCD shows the `TRANSCRIBING` screen (see [display.md](display.md)).
+- On the HAT, the LCD shows the `TRANSCRIBING` screen (see [display.md](display.md)).
 - On the ReSpeaker HAT, the LED is the only feedback channel.
 
 ---

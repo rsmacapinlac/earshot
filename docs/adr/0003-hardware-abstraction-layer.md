@@ -8,7 +8,7 @@ The application depends on Pi-specific hardware, and the supported HATs differ i
 | HAT | Button | LED control | ALSA card | Speaker |
 |---|---|---|---|---|
 | ReSpeaker | GPIO17 | APA102 via SPI | `seeed-2mic-voicecard` | No |
-| Whisplay | GPIO17 | Discrete GPIO (GPIO23/24/25) | `wm8960soundcard` | Yes (8Ω 1W) |
+| | GPIO17 | Discrete GPIO (GPIO23/24/25) | `wm8960soundcard` | Yes (8Ω 1W) |
 
 Without abstraction, the full application cannot run or be tested on a development machine, and supporting multiple hardware combinations would require scattered conditionals throughout the codebase.
 

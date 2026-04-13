@@ -6,12 +6,12 @@ Items that are out of scope for the current release but are candidates for futur
 
 ## Audio Feedback (v2)
 
-Speaker output is available on the Whisplay HAT but not implemented in v1.
+Audio feedback for state transitions is deferred to v2.
 
 | ID | Item | Notes |
 |---|---|---|
-| B-A1 | Audio cues on state transitions | Short tones on start recording, stop recording, USB transfer complete, error. Requires `AudioOutputInterface` implementation in `earshot/hal/whisplay.py`. Config key `[audio]` is stubbed in `config.toml`. |
-| B-A2 | Configurable audio feedback volume | Via `[audio]` section in `config.toml` |
+| B-A1 | Audio cues on state transitions | Short tones on start recording, stop recording, USB transfer complete, error. Requires `AudioOutputInterface` implementation in HAL. |
+| B-A2 | Configurable audio feedback volume | Via `[audio]` section in `config.toml`. |
 
 ---
 

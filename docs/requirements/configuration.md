@@ -10,7 +10,7 @@ All values shown below are defaults. Omitting a key uses the default.
 
 | Key | Type | Default | Values | Description |
 |---|---|---|---|---|
-| `hardware.hat` | string | — | `"respeaker"`, `"whisplay"` | **Required.** The connected audio HAT. Determines driver installation and HAL implementation at startup. |
+| `hardware.hat` | string | `"respeaker"` | `"respeaker"` | Audio HAT to use. |
 
 ---
 
@@ -52,22 +52,6 @@ On-device transcription using faster-whisper (CTranslate2). Enabled by default �
 
 ---
 
-## `[audio]` *(v2)*
-
-Audio feedback via the Whisplay HAT speaker is deferred to v2. No `[audio]` keys are used in v1.
-
----
-
-## `[display]`
-
-Applies to Whisplay HAT only. Ignored (no-op) on ReSpeaker HAT.
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `display.brightness` | integer | `80` | LCD backlight brightness (0–100). Set to `0` to turn the display off entirely. |
-
----
-
 ## `[shutdown]`
 
 | Key | Type | Default | Description |
@@ -80,7 +64,7 @@ Applies to Whisplay HAT only. Ignored (no-op) on ReSpeaker HAT.
 
 ```toml
 [hardware]
-hat = "whisplay"
+hat = "respeaker"
 
 [recording]
 chunk_duration_seconds = 900
@@ -92,9 +76,6 @@ bitrate_kbps = 32
 [storage]
 recordings_dir = "~/earshot/recordings"
 disk_threshold_percent = 90
-
-[display]
-brightness = 80
 
 [transcription]
 enabled = true

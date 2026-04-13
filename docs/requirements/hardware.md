@@ -2,7 +2,7 @@
 
 ## Single Board Computers
 
-Earshot supports two SBCs. The HAT choice is independent of the SBC choice — any supported HAT can be paired with any supported SBC.
+Earshot supports two SBCs with the ReSpeaker HAT.
 
 | | Pi 4B | Pi Zero 2W |
 |---|---|---|
@@ -15,11 +15,9 @@ Earshot supports two SBCs. The HAT choice is independent of the SBC choice — a
 
 > **Note:** Pi 3B/3B+ (1GB) are not supported. Pi 5 compatibility is untested.
 
-## Audio HATs
+## Audio HAT
 
-Earshot supports two HATs. The active HAT is selected via `hardware.hat` in `config.toml`.
-
-### Seeed ReSpeaker 2-Mic Pi HAT
+Earshot uses the ReSpeaker HAT (selected via `hardware.hat` in `config.toml`).
 
 | Component | Detail |
 |---|---|
@@ -29,18 +27,4 @@ Earshot supports two HATs. The active HAT is selected via `hardware.hat` in `con
 | LED | APA102 RGB LEDs x3 (SPI-controlled) — 1 used, v1 |
 | Button | GPIO17 |
 | Speaker | None |
-
-### Whisplay HAT (PiSugar)
-
-| Component | Detail |
-|---|---|
-| Audio codec | WM8960 (I2C control + I2S data) |
-| ALSA card name | `wm8960soundcard` |
-| Microphones | 2x onboard MEMS mics |
-| LEDs | 3x discrete RGB LEDs — GPIO25, GPIO24, GPIO23 |
-| Button | GPIO17 |
-| Speaker | 8Ω 1W onboard (+ PH2.0 external mono connector, switchable) |
-| Display | 1.69" LCD, 240×280px, ST7789P3 driver, SPI |
-
-> **Note:** The Whisplay HAT's form factor matches the Pi Zero, but it is electrically compatible with the Pi 4B GPIO header as well.
 

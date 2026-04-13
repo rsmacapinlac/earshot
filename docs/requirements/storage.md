@@ -79,7 +79,7 @@ Allows a user to retrieve recordings by plugging a micro-USB OTG cable from the 
 
 - The device monitors for USB host connection using a `g_zero` probe gadget: a minimal USB gadget is loaded at idle so the UDC (USB Device Controller) can report VBUS and connection state. When the UDC transitions to `configured`, a host is connected.
 - **If no recording session is active on connection:** offload begins immediately (steps 1–4 below).
-- **If a recording session is active on connection:** the connection is registered and offload is deferred. The device continues recording normally (LED remains **red**). On the Whisplay HAT, Zone D of the display shows `USB pending`. When the user presses the button to end the session (and the final chunk finishes encoding), offload begins.
+- **If a recording session is active on connection:** the connection is registered and offload is deferred. The device continues recording normally (LED remains **red**). On the HAT, Zone D of the display shows `USB pending`. When the user presses the button to end the session (and the final chunk finishes encoding), offload begins.
   - **Note:** The laptop will not see a USB mass storage device until the deferred offload begins — this is expected behaviour. The cable should remain plugged in.
 - On offload start:
   1. A sparse FAT32 image (`/tmp/earshot-recordings.img`) is created, sized to the current recordings content.

@@ -86,10 +86,10 @@ def _stub_hal(cfg: AppConfig) -> Hal:
 
 def _pi_hal(cfg: AppConfig, hat: str) -> Hal:
     from earshot.hal.animator import LedAnimator
-    from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton
+    from earshot.hal.pi import PiAlsaCapture, PiAudioCapture, PiButton, PiLED
 
-    # Whisplay button is active-high (pull-down); ReSpeaker is active-low (pull-up).
-    button = PiButton(active_high=(hat == "whisplay"))
+    # ReSpeaker button is active-low (pull-up).
+    button = PiButton(active_high=False)
     device_index = cfg.audio.input_device_index
     alsa_pcm = cfg.audio.alsa_pcm
 
@@ -99,28 +99,15 @@ def _pi_hal(cfg: AppConfig, hat: str) -> Hal:
             return PiAlsaCapture(alsa_pcm, cfg.audio.sample_rate, cfg.audio.channels)
         return PiAudioCapture(cfg.audio.sample_rate, cfg.audio.channels, device_index)
 
-    if hat == "whisplay":
-        from earshot.hal.whisplay import WhisplayDisplay, WhisplayLED
-
-        pi_led = None
-        animator = None
-        led: LEDDriver = WhisplayLED()
-        display: DisplayDriver = WhisplayDisplay()
-    else:
-        # ReSpeaker: APA102 LED via SPI + LedAnimator
-        from earshot.hal.pi import PiLED
-
-        pi_led = PiLED()
-        animator = LedAnimator(pi_led)
-        animator.start()
-        led = _AnimatingLed(animator)
-        display = StubDisplay()  # ReSpeaker has no LCD — no-op display
+    # ReSpeaker: APA102 LED via SPI + LedAnimator
+    pi_led = PiLED()
+    animator = LedAnimator(pi_led)
+    animator.start()
+    led = _AnimatingLed(animator)
+    display = StubDisplay()  # ReSpeaker has no LCD — no-op display
 
     def on_close() -> None:
-        if animator is not None:
-            animator.close()
-        else:
-            led.close()
+        animator.close()
         button.close()
         display.close()
 

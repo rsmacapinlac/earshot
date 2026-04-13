@@ -20,7 +20,7 @@ The installer prompts interactively. No manual `config.toml` setup is required b
 ```
 Which HAT is connected?
   1) Seeed ReSpeaker 2-Mic Pi HAT
-  2) Whisplay HAT (PiSugar)
+  2) (PiSugar)
 
 Enter 1 or 2:
 ```
@@ -34,7 +34,7 @@ The two supported HATs use the same WM8960 codec chip but require different, **m
 | HAT | Driver | dtoverlay |
 |---|---|---|
 | ReSpeaker | seeed-voicecard (custom WM8960 kernel module) | `seeed-2mic-voicecard` |
-| Whisplay | Upstream WM8960 driver | `wm8960-soundcard` |
+| | Upstream WM8960 driver | `wm8960-soundcard` |
 
 Only one `dtoverlay` entry is written to `/boot/config.txt`. Switching HATs requires re-running the installer with the updated `hardware.hat` value.
 

@@ -60,7 +60,7 @@ class AudioCapture(Protocol):
 
 @runtime_checkable
 class DisplayDriver(Protocol):
-    """LCD display on Whisplay HAT; no-op on ReSpeaker (ADR-0009)."""
+    """Display interface (no-op on ReSpeaker)."""
 
     def update(self, state: str, data: dict[str, Any]) -> None:
         """Render the given device state and supplementary data to the display.

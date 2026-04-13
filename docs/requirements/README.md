@@ -13,7 +13,6 @@ Earshot is a Raspberry Pi application (Pi 4B or Pi Zero 2W) that records audio v
 | File | Description |
 |---|---|
 | [device-state.md](device-state.md) | Device state machine — LED colours, button behaviour, start/stop recording |
-| [display.md](display.md) | LCD display UX for the Whisplay HAT |
 
 ### Audio Pipeline
 | File | Description |

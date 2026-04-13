@@ -22,7 +22,7 @@ def _load_toml(path: Path) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class HardwareConfig:
-    hat: Literal["respeaker", "whisplay"]
+    hat: Literal["respeaker"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,9 +89,9 @@ def load_config(explicit_path: Path | None = None) -> AppConfig:
     raw = _load_toml(path)
     hw = _section(raw, "hardware")
     hat_val = str(hw.get("hat", "respeaker")).strip().lower()
-    if hat_val not in ("respeaker", "whisplay"):
+    if hat_val != "respeaker":
         raise ValueError(
-            f"config.toml [hardware] hat must be 'respeaker' or 'whisplay', got {hat_val!r}"
+            f"config.toml [hardware] hat must be 'respeaker', got {hat_val!r}"
         )
     audio = _section(raw, "audio")
     recording = _section(raw, "recording")

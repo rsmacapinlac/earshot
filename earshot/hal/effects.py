@@ -19,7 +19,7 @@ def flash_double_green(hal: Hal, *, step_s: float = 0.12) -> None:
             hal.pi_led.render_scaled(0.0)
             time.sleep(step_s)
     else:
-        # Whisplay (or stub): drive via LEDDriver interface
+        # Drive via LEDDriver interface (stub mode)
         for _ in range(2):
             hal.led.set_colour_and_pattern(0, 255, 0, LedPattern.SOLID)
             time.sleep(step_s)
