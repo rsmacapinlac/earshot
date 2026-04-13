@@ -84,7 +84,7 @@ class StdinPulseButton(ButtonDriver):
 
 
 class StubDisplay(DisplayDriver):
-    """Prints display state to stdout — fully observable without a Pi (ADR-0009)."""
+    """Prints display state to stdout — fully observable without a Pi."""
 
     def update(self, state: str, data: dict[str, Any]) -> None:
         parts = [f"[DISPLAY] state={state}"]
